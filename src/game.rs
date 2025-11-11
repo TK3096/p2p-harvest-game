@@ -2,7 +2,6 @@ use std::{
     fs::{File, OpenOptions},
     io::{self, Read, Write},
     path::Path,
-    str::FromStr,
     time::Duration,
 };
 
@@ -19,7 +18,6 @@ use crossterm::{
     },
 };
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 const GAME_STATE_FILE: &str = ".game-state.json";
 
