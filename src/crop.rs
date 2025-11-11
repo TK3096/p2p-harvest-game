@@ -5,40 +5,36 @@ use uuid::Uuid;
 pub struct Seed {
     pub id: Uuid,
     pub name: String,
-    pub growth_count: u32, // number of times watered
+    pub duration: u16, // watered counts needed to grow
 }
 
 impl Seed {
-    pub fn new(name: String, growth_count: u32) -> Self {
+    pub fn new(name: &str, duration: u16) -> Self {
         Self {
             id: Uuid::new_v4(),
-            name,
-            growth_count,
+            name: name.to_string(),
+            duration,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crop {
-    pub id: Uuid,
     pub seed: Seed,
-    pub price: u32,
-    pub growth: u32,
+    pub watered_counts: u16,
     pub can_harvest: bool,
-    pub watered_at: Option<u64>,
-    pub owner_id: Uuid,
+    pub is_watered: bool,
+    pub price: u32,
 }
 
 impl Crop {
-    pub fn new(seed: Seed, owner_id: Uuid) -> Self {
+    pub fn new(seed: Seed, price: u32) -> Self {
         Self {
-            id: Uuid::new_v4(),
             seed,
-            price: 100,
-            growth: 0,
+            is_watered: false,
+            watered_counts: 0,
             can_harvest: false,
-            watered_at: None,
-            owner_id,
+            price,
         }
     }
 }

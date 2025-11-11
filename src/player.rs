@@ -1,118 +1,98 @@
-use std::array;
-
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::crop::{Crop, Seed};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+const MAX_ENERGY: u32 = 100;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Player {
     pub id: Uuid,
     pub name: String,
+    pub energy: u32,
     pub money: u32,
-    pub inventory: [Option<Seed>; 9],
+    pub inventory: Vec<Seed>,
     pub fields: Vec<Crop>,
 }
 
 impl Player {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             id: Uuid::new_v4(),
-            name,
+            name: name.to_string(),
+            energy: MAX_ENERGY,
             money: 1000,
-            inventory: array::from_fn(|i| {
-                if i == 0 {
-                    Some(Seed::new("Turnip".to_string(), 3))
-                } else {
-                    None
-                }
-            }),
             fields: Vec::new(),
+            inventory: vec![
+                Seed::new("Carrot", 3),
+                Seed::new("Tomato", 4),
+                Seed::new("Lettuce", 2),
+            ],
         }
     }
 
-    pub fn plant(&mut self) {
-        let seed = self.inventory[0].as_ref();
-
-        match seed {
-            Some(s) => {
-                let crop = Crop::new(s.clone(), self.id);
-
-                self.fields.push(crop);
-
-                println!("Planting seed: {}", s.name);
-            }
-            None => {
-                println!("No seed to plant!");
-            }
+    pub fn plant(&mut self, seed_id: Uuid) -> Result<()> {
+        if self.energy == 0 {
+            println!("You don't have enough energy to plant.");
+            return Ok(());
         }
+
+        if let Some(seed) = self.inventory.iter().find(|s| s.id == seed_id) {
+            let crop = Crop::new(seed.clone(), 100); // Example price
+            self.fields.push(crop);
+            self.inventory.retain(|s| s.id != seed_id);
+        } else {
+            println!("Seed not found in your inventory.");
+        }
+
+        Ok(())
     }
 
-    pub fn status(&self) {
-        println!("Player: {}", self.name);
-        println!("Money: {}", self.money);
-        println!("Inventory:");
-        for (i, seed_option) in self.inventory.iter().enumerate() {
-            match seed_option {
-                Some(seed) => {
-                    println!(
-                        "  Slot {}: {} (Growth count: {})",
-                        i + 1,
-                        seed.name,
-                        seed.growth_count
-                    );
+    pub fn sleep(&mut self) {
+        self.energy = MAX_ENERGY;
+
+        self.fields.iter_mut().for_each(|crop| {
+            crop.is_watered = false;
+        });
+    }
+
+    pub fn water(&mut self) -> Result<()> {
+        if self.energy == 0 {
+            println!("You don't have enough energy to water.");
+            return Ok(());
+        }
+
+        for crop in self.fields.iter_mut() {
+            if !crop.is_watered {
+                crop.watered_counts += 1;
+                crop.is_watered = true;
+
+                if crop.watered_counts >= crop.seed.duration {
+                    crop.can_harvest = true;
                 }
-                None => {
-                    println!("  Slot {}: Empty", i + 1);
-                }
+
+                self.energy = self.energy.saturating_sub(10).min(0); // Example energy cost
             }
         }
-        println!("Fields:");
-        for (i, crop) in self.fields.iter().enumerate() {
-            println!(
-                "  Field {}: {} (Growth: {})",
-                i + 1,
-                crop.seed.name,
-                crop.growth
-            );
-        }
+
+        Ok(())
     }
 
-    pub fn water(&mut self) {
-        for crop in &mut self.fields {
-            if crop.growth >= crop.seed.growth_count {
-                println!("Crop: {} is already fully grown.", crop.seed.name);
-                continue;
-            }
+    pub fn harvest(&mut self) -> Result<()> {
+        let mut total_earnings = 0;
 
-            crop.growth += 1;
-            println!(
-                "Watered crop: {}. Growth is now {}",
-                crop.seed.name, crop.growth
-            );
-
-            if crop.growth == crop.seed.growth_count {
-                crop.can_harvest = true;
-            }
-        }
-    }
-
-    pub fn harvest(&mut self) {
-        let mut harvested_indices = Vec::new();
-
-        for (i, crop) in self.fields.iter().enumerate() {
+        self.fields.retain(|crop| {
             if crop.can_harvest {
-                self.money += crop.price;
-                println!(
-                    "Harvested crop: {} for {} money.",
-                    crop.seed.name, crop.price
-                );
-                harvested_indices.push(i);
+                total_earnings += crop.price;
+                false // Remove harvested crop
+            } else {
+                true // Keep unharvested crop
             }
-        }
+        });
 
-        for &index in harvested_indices.iter().rev() {
-            self.fields.remove(index);
-        }
+        self.money += total_earnings;
+
+        Ok(())
     }
 }
