@@ -1,11 +1,11 @@
-use crate::player::Player;
+use crate::game::Game;
 
 mod crop;
 mod game;
 mod player;
 
-fn main() {
-    let player = Player::default();
-
-    println!("Player Info: {:?}", player);
+#[tokio::main]
+async fn main() {
+    let mut game = Game::new("Player1".to_string());
+    game.run().await.unwrap();
 }

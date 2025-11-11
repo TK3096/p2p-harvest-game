@@ -3,29 +3,42 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Seed {
-    id: Uuid,
-    name: String,
-    growth_time: u64, // in hours (milliseconds)
+    pub id: Uuid,
+    pub name: String,
+    pub growth_count: u32, // number of times watered
 }
 
 impl Seed {
-    pub fn new(name: String, growth_time: u64) -> Self {
+    pub fn new(name: String, growth_count: u32) -> Self {
         Self {
             id: Uuid::new_v4(),
             name,
-            growth_time,
+            growth_count,
         }
     }
 }
 
-// Not done
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crop {
-    id: Uuid,
-    name: String,
-    price: u32,
-    growth: u32,
-    can_harvest: bool,
-    watered_at: u64, // timestamp in milliseconds
-    planted_at: u64, // timestamp in milliseconds
+    pub id: Uuid,
+    pub seed: Seed,
+    pub price: u32,
+    pub growth: u32,
+    pub can_harvest: bool,
+    pub watered_at: Option<u64>,
+    pub owner_id: Uuid,
+}
+
+impl Crop {
+    pub fn new(seed: Seed, owner_id: Uuid) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            seed,
+            price: 100,
+            growth: 0,
+            can_harvest: false,
+            watered_at: None,
+            owner_id,
+        }
+    }
 }
