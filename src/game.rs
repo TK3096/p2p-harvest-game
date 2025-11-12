@@ -2,42 +2,30 @@ use std::{
     fs::{File, OpenOptions},
     io::{self, Read, Write},
     path::Path,
-    time::Duration,
 };
 
-use crate::player::Player;
 use anyhow::{Context, Result};
-use crossterm::{
-    QueueableCommand,
-    cursor::MoveTo,
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    execute,
-    terminal::{
-        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-        enable_raw_mode,
-    },
-};
 use serde::{Deserialize, Serialize};
 
+use crate::player::Player;
+
 const GAME_STATE_FILE: &str = ".game-state.json";
+const INITIAL_DAY: u32 = 1;
 
-#[derive(Debug)]
-pub enum InputEvent {
-    Plant,
-    Sleep,
-    Water,
-    Harvest,
-    Status,
-    Quit,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GameState {
+    pub player: Player,
+    pub day: u32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct GameManagement {
-    player: Player,
-    day: u32,
-}
+impl GameState {
+    fn new(player: Player) -> Self {
+        Self {
+            player,
+            day: INITIAL_DAY,
+        }
+    }
 
-impl GameManagement {
     pub fn load_or_create() -> Result<Self> {
         if Path::new(GAME_STATE_FILE).exists() {
             let mut file = File::open(GAME_STATE_FILE)
@@ -45,216 +33,180 @@ impl GameManagement {
 
             let mut content = String::new();
             file.read_to_string(&mut content)
-                .with_context(|| "Failed to read game state file")?;
+                .with_context(|| format!("Failed to read game state file {}", GAME_STATE_FILE))?;
 
-            let game = serde_json::from_str(&content)
+            let game_state = serde_json::from_str(&content)
                 .with_context(|| "Failed to parse game state file")?;
 
-            Ok(game)
+            Ok(game_state)
         } else {
-            println!("Name: ");
+            println!("Name:");
             io::stdout().flush()?;
 
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
+
             let name = input.trim();
+            let player = Player::new(name);
 
-            let game = GameManagement {
-                player: Player::new(name),
-                day: 1,
-            };
-
-            game.save()?;
-
-            Ok(game)
+            Ok(Self::new(player))
         }
     }
 
-    pub fn save(&self) -> Result<()> {
+    fn save(&self) -> Result<()> {
         let mut file = OpenOptions::new()
-            .create(true)
             .write(true)
             .read(true)
+            .create(true)
             .truncate(true)
             .open(GAME_STATE_FILE)
-            .with_context(|| format!("Failed to create/open file {}", GAME_STATE_FILE))?;
+            .with_context(|| format!("Failed to create/open {}", GAME_STATE_FILE))?;
 
         let json =
-            serde_json::to_string_pretty(self).with_context(|| "Failed to serialize state")?;
+            serde_json::to_string_pretty(self).with_context(|| "Failed to serialize game state")?;
 
         file.write_all(json.as_bytes())
-            .with_context(|| "Failed to write state to file")?;
+            .with_context(|| format!("Failed to write to {}", GAME_STATE_FILE))?;
 
         Ok(())
     }
 
     pub fn reset(&self) -> Result<()> {
         if Path::new(GAME_STATE_FILE).exists() {
-            std::fs::remove_file(GAME_STATE_FILE).with_context(|| "Failed to remove state file")?;
-        }
-
-        println!("Game has been reset.");
-        Ok(())
-    }
-
-    pub fn display_status(&self) -> Result<()> {
-        let mut stdout = io::stdout().lock();
-
-        write!(stdout, "Day: {}\r\n", self.day)?;
-        write!(stdout, "Player: {}\r\n", self.player.name)?;
-        write!(stdout, "Energy: {}\r\n", self.player.energy)?;
-        write!(stdout, "Money: {}\r\n", self.player.money)?;
-        write!(stdout, "Inventory:\r\n")?;
-        for seed in &self.player.inventory {
-            write!(
-                stdout,
-                "- [{}] {} (Duration: {})\r\n",
-                seed.id, seed.name, seed.duration
-            )?;
-        }
-        write!(stdout, "Fields:\r\n")?;
-        for crop in &self.player.fields {
-            write!(
-                stdout,
-                "- {} (Watered: {}/{}, Can Harvest: {}, Price: {})\r\n",
-                crop.seed.name,
-                crop.watered_counts,
-                crop.seed.duration,
-                crop.can_harvest,
-                crop.price
-            )?;
+            std::fs::remove_file(GAME_STATE_FILE)
+                .with_context(|| format!("Failed to delete {}", GAME_STATE_FILE))?;
         }
         Ok(())
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        let mut stdout = io::stdout().lock();
-
-        execute!(stdout, EnterAlternateScreen)?;
-        enable_raw_mode().with_context(|| "Failed to enable raw mode")?;
-
-        stdout.queue(Clear(ClearType::All))?;
-        stdout.queue(MoveTo(0, 0))?;
-
+    pub fn play(&mut self) -> Result<()> {
         loop {
-            if event::poll(Duration::from_millis(100)).unwrap_or(false) {
-                if let Ok(event) = event::read() {
-                    if let Event::Key(key_event) = event {
-                        if let Some(input_event) = Self::handle_key_event(key_event) {
-                            match input_event {
-                                InputEvent::Quit => break,
-                                InputEvent::Plant => {
-                                    let seeds = self.player.inventory.clone();
-                                    let mut selected = 0;
+            io::stdout().flush()?;
+            println!("plant, sleep, water, harvest, sell, stat, exit");
 
-                                    loop {
-                                        execute!(stdout, Clear(ClearType::All))?;
-                                        execute!(stdout, MoveTo(0, 0))?;
-                                        write!(stdout, "Select a seed to plant:\r\n")?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let cmd = input.trim();
 
-                                        for (i, seed) in seeds.iter().enumerate() {
-                                            if i == selected {
-                                                write!(
-                                                    stdout,
-                                                    "> {} (Duration: {})\r\n",
-                                                    seed.name, seed.duration
-                                                )?;
-                                            } else {
-                                                write!(
-                                                    stdout,
-                                                    "  {} (Duration: {})\r\n",
-                                                    seed.name, seed.duration
-                                                )?;
-                                            }
-                                        }
+            match cmd {
+                "plant" => {
+                    println!("Planting...");
+                    if self.player.inventories.is_empty() {
+                        println!("No seeds available to plant.");
+                        continue;
+                    }
 
-                                        if let Event::Key(key_event) = event::read()? {
-                                            match key_event.code {
-                                                KeyCode::Up => {
-                                                    if selected > 0 {
-                                                        selected -= 1;
-                                                    }
-                                                }
-                                                KeyCode::Down => {
-                                                    if selected < seeds.len() - 1 {
-                                                        selected += 1;
-                                                    }
-                                                }
-                                                KeyCode::Enter => {
-                                                    let seed_id = seeds[selected].id;
-                                                    self.player.plant(seed_id)?;
+                    for (index, seed) in self.player.inventories.iter().enumerate() {
+                        println!(
+                            "{}: {} (Days to harvest: {})",
+                            index + 1,
+                            seed.name,
+                            seed.days_to_harvest
+                        );
+                    }
 
-                                                    write!(stdout, "Plant success!\r\n")?;
-                                                    break;
-                                                }
-                                                KeyCode::Esc => {
-                                                    break;
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    }
+                    println!("Select a seed to plant by number:");
+                    io::stdout().flush()?;
+                    let mut selection_input = String::new();
+                    io::stdin().read_line(&mut selection_input)?;
+                    if let Ok(selection) = selection_input.trim().parse::<usize>() {
+                        if selection > 0 && selection <= self.player.inventories.len() {
+                            let seed = self.player.inventories[selection - 1].clone();
+                            match self.player.plant_crop(seed.clone()) {
+                                Ok(_) => {
+                                    println!("{} planted successfully.", seed.name);
                                 }
-                                InputEvent::Sleep => {
-                                    self.player.sleep();
-                                    self.day += 1;
-                                    self.save()?;
-                                }
-                                InputEvent::Water => {
-                                    self.player.water()?;
-                                }
-                                InputEvent::Harvest => {
-                                    self.player.harvest()?;
-                                }
-                                InputEvent::Status => {
-                                    self.display_status()?;
+                                Err(e) => {
+                                    println!("Failed to plant {}: {}", seed.name, e);
                                 }
                             }
+                        } else {
+                            println!("Invalid selection.");
+                        }
+                    } else {
+                        println!("Invalid input.");
+                    }
+                }
+                "sleep" => {
+                    self.player.sleep();
+                    self.day += 1;
+                    self.save()?;
+
+                    println!("Sleeping...");
+                }
+                "water" => {
+                    println!("Watering...");
+                    match self.player.water_crops(self.day as u8) {
+                        Ok(_) => {
+                            println!("Crops watered successfully.");
+                        }
+                        Err(e) => {
+                            println!("Failed to water crops: {}", e);
                         }
                     }
+                }
+                "harvest" => {
+                    println!("Harvesting...");
+
+                    match self.player.harvest_crops() {
+                        Ok(_) => {
+                            println!("Crops harvested successfully.");
+                        }
+                        Err(e) => {
+                            println!("Failed to harvest crops: {}", e);
+                        }
+                    }
+                }
+                "sell" => {
+                    println!("Selling...");
+
+                    if self.player.warehouses.is_empty() {
+                        println!("No crops available to sell.");
+                        continue;
+                    }
+
+                    for (index, crop) in self.player.warehouses.iter().enumerate() {
+                        println!("{}: {} (Price: {})", index + 1, crop.name, crop.price);
+                    }
+
+                    println!("Select a crop to sell by number:");
+                    io::stdout().flush()?;
+                    let mut selection_input = String::new();
+                    io::stdin().read_line(&mut selection_input)?;
+                    if let Ok(selection) = selection_input.trim().parse::<usize>() {
+                        if selection > 0 && selection <= self.player.warehouses.len() {
+                            let crop = self.player.warehouses[selection - 1].clone();
+                            match self.player.sell_crop(crop.clone()) {
+                                Ok(_) => {
+                                    println!("{} sold successfully.", crop.name);
+                                }
+                                Err(e) => {
+                                    println!("Failed to sell {}: {}", crop.name, e);
+                                }
+                            }
+                        } else {
+                            println!("Invalid selection.");
+                        }
+                    } else {
+                        println!("Invalid input.");
+                    }
+                }
+                "stat" => {
+                    println!("Displaying stats");
+
+                    println!("Day: {}", self.day);
+                    println!("Player: {:#?}", self.player);
+                }
+                "exit" => {
+                    println!("Exiting game...");
+                    break;
+                }
+                _ => {
+                    println!("Unknown command: {}", cmd);
                 }
             }
         }
 
-        disable_raw_mode().with_context(|| "Failed to disable raw mode")?;
-        execute!(stdout, LeaveAlternateScreen)?;
-
         Ok(())
-    }
-
-    fn handle_key_event(key_event: KeyEvent) -> Option<InputEvent> {
-        match key_event {
-            KeyEvent {
-                code: KeyCode::Char('q'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            } => Some(InputEvent::Quit),
-            KeyEvent {
-                code: KeyCode::Char('p'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            } => Some(InputEvent::Plant),
-            KeyEvent {
-                code: KeyCode::Char('s'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            } => Some(InputEvent::Sleep),
-            KeyEvent {
-                code: KeyCode::Char('i'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            } => Some(InputEvent::Status),
-            KeyEvent {
-                code: KeyCode::Char('w'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            } => Some(InputEvent::Water),
-            KeyEvent {
-                code: KeyCode::Char('h'),
-                modifiers: KeyModifiers::NONE,
-                ..
-            } => Some(InputEvent::Harvest),
-            _ => None,
-        }
     }
 }
