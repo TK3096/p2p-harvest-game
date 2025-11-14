@@ -1,13 +1,14 @@
 mod crop;
 mod game;
+mod message;
 mod player;
 
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use crate::game::GameState;
+use crate::{game::GameState, message::WELCOME_MESSAGE};
 
 #[derive(Parser)]
 struct Args {
@@ -29,7 +30,10 @@ fn main() -> Result<ExitCode> {
 
     match args.command {
         Some(SubCommands::Play) => {
-            game_state.play()?;
+            println!("{}", WELCOME_MESSAGE);
+            game_state.play().context("Failed to start game")?;
+
+            println!("\n👋 Thanks for playing!");
         }
         Some(SubCommands::Reset) => {
             game_state.reset()?;

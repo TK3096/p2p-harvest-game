@@ -1,16 +1,40 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{self, Read, Write},
+    io::{self, Read, StdoutLock, Write},
     path::Path,
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
+use crossterm::{
+    QueueableCommand,
+    cursor::MoveTo,
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    },
+    execute,
+    terminal::{
+        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+        enable_raw_mode,
+    },
+};
 use serde::{Deserialize, Serialize};
 
-use crate::player::Player;
+use crate::{message, player::Player};
 
 const GAME_STATE_FILE: &str = ".game-state.json";
 const INITIAL_DAY: u32 = 1;
+
+#[derive(Debug)]
+enum InputEvent {
+    Plant,
+    Sleep,
+    Water,
+    Harvest,
+    Sell,
+    Stat,
+    Quit,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
@@ -80,6 +104,154 @@ impl GameState {
     }
 
     pub fn play(&mut self) -> Result<()> {
+        let mut stdout = io::stdout().lock();
+        enable_raw_mode().context("Failed to enable raw mode")?;
+
+        let result = self.run_game_loop(&mut stdout);
+
+        disable_raw_mode().context("Failed to disable raw mode")?;
+
+        result
+    }
+
+    pub fn run_game_loop(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        message::display_control_instructions(stdout)?;
+        stdout.queue(Clear(ClearType::All))?;
+        stdout.queue(MoveTo(0, 0))?;
+
+        loop {
+            if event::poll(Duration::from_millis(100)).unwrap_or(false) {
+                if let Ok(event) = event::read() {
+                    if let Event::Key(key_event) = event {
+                        if let Some(input_event) = Self::handle_key_event(key_event) {
+                            match input_event {
+                                InputEvent::Quit => {
+                                    break;
+                                }
+                                InputEvent::Plant => {
+                                    self.handle_plant_event(stdout)?;
+                                }
+                                InputEvent::Sleep => {
+                                    self.handle_sleep_event(stdout)?;
+                                }
+                                InputEvent::Water => {
+                                    self.handle_water_event(stdout)?;
+                                }
+                                InputEvent::Harvest => {
+                                    self.handle_harvest_event(stdout)?;
+                                }
+                                InputEvent::Sell => {
+                                    self.handle_sell_event(stdout)?;
+                                }
+                                InputEvent::Stat => {
+                                    self.handle_stat_event(stdout)?;
+                                }
+                                _ => {}
+                            }
+
+                            message::display_control_instructions(stdout)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_key_event(key_event: KeyEvent) -> Option<InputEvent> {
+        match key_event {
+            KeyEvent {
+                code: KeyCode::Char('q'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            }
+            | KeyEvent {
+                code: KeyCode::Esc,
+                modifiers: KeyModifiers::NONE,
+                ..
+            }
+            | KeyEvent {
+                code: KeyCode::Char('c'),
+                modifiers: KeyModifiers::CONTROL,
+                ..
+            } => Some(InputEvent::Quit),
+            KeyEvent {
+                code: KeyCode::Char('p'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => Some(InputEvent::Plant),
+            KeyEvent {
+                code: KeyCode::Char('s'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => Some(InputEvent::Sleep),
+            KeyEvent {
+                code: KeyCode::Char('w'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => Some(InputEvent::Water),
+            KeyEvent {
+                code: KeyCode::Char('h'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => Some(InputEvent::Harvest),
+            KeyEvent {
+                code: KeyCode::Char('l'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => Some(InputEvent::Sell),
+            KeyEvent {
+                code: KeyCode::Char('i'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => Some(InputEvent::Stat),
+            _ => None,
+        }
+    }
+
+    fn handle_plant_event(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        if self.player.inventories.is_empty() {
+            write!(stdout, "No seeds available to plant.\n")?;
+            stdout.flush()?;
+
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
+    fn handle_sleep_event(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        write!(stdout, "💤 Sleeping...\r\n")?;
+        write!(stdout, "🌞 End of day {}\r\n", self.day)?;
+
+        self.player.sleep();
+        self.day += 1;
+        self.save()?;
+
+        write!(stdout, "💾 Save completed...\r\n")?;
+        stdout.flush()?;
+
+        Ok(())
+    }
+
+    fn handle_water_event(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        Ok(())
+    }
+
+    fn handle_harvest_event(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        Ok(())
+    }
+
+    fn handle_sell_event(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        Ok(())
+    }
+
+    fn handle_stat_event(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn play2(&mut self) -> Result<()> {
         loop {
             io::stdout().flush()?;
             println!("plant, sleep, water, harvest, sell, stat, exit");
