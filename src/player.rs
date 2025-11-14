@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::crop::{Crop, Seed};
 
-const MAX_ENERGY: u8 = 100;
+pub const MAX_ENERGY: u8 = 100;
 const STARTING_MONEY: u32 = 1000;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,7 +63,7 @@ impl Player {
     pub fn water_crops(&mut self, current_day: u8) -> Result<()> {
         for crop in &mut self.fields {
             if self.energy == 0 {
-                bail!("You has no energy left!!");
+                bail!("You have no energy left!!");
             }
 
             if self.energy < crop.energy_required {
