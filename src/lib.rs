@@ -3,3 +3,4 @@ pub mod event;
 pub mod game;
 pub mod player;
 pub mod trade;
+pub mod trade_manager;

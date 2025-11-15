@@ -2,6 +2,8 @@ use std::{
     fs::{File, OpenOptions},
     io::{self, Read, StdoutLock, Write},
     path::Path,
+    str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::{Context, Result};
@@ -9,9 +11,16 @@ use crossterm::{
     QueueableCommand,
     style::{Color, ResetColor, SetForegroundColor},
 };
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
-use crate::{event::input::InputEvent, player::Player, trade::TradeNode};
+use crate::{
+    event::{input::InputEvent, trade::TradeItemType},
+    player::Player,
+    trade::TradeItem,
+    trade_manager::TradeManager,
+};
 
 const STATE_FILE: &str = ".game-state.json";
 const STARTING_DAY: u32 = 1;
@@ -85,13 +94,20 @@ impl GameState {
     }
 
     pub fn start(&mut self) -> Result<()> {
+        let mut trade_manager = TradeManager::new()?;
+        trade_manager.initialize(self.clone())?;
+
         let mut stdout = io::stdout().lock();
-        let result = self.run_game_loop(&mut stdout);
+        let result = self.run_game_loop(&mut stdout, trade_manager);
 
         result
     }
 
-    pub fn run_game_loop(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+    pub fn run_game_loop(
+        &mut self,
+        stdout: &mut StdoutLock,
+        trade_manager: TradeManager,
+    ) -> Result<()> {
         loop {
             write!(stdout, "Control Instructions:\r\n")?;
             write!(
@@ -127,7 +143,7 @@ impl GameState {
                         self.display_status(stdout)?;
                     }
                     InputEvent::Trade => {
-                        self.handle_trade(stdout)?;
+                        self.handle_trade(stdout, &trade_manager)?;
                     }
                 }
             } else {
@@ -291,31 +307,164 @@ impl GameState {
         Ok(())
     }
 
-    fn handle_trade(&mut self, stdout: &mut StdoutLock) -> Result<()> {
-        write!(stdout, "🎁 Trade your crops.\r\n")?;
+    fn handle_trade(
+        &mut self,
+        stdout: &mut StdoutLock,
+        trade_manager: &TradeManager,
+    ) -> Result<()> {
+        write!(stdout, "🎁 P2P Trade System\r\n")?;
         writeln!(stdout)?;
 
-        write!(stdout, "Select sender/receiver by number\r\n")?;
-        write!(stdout, "1. Sedner\r\n")?;
-        write!(stdout, "2. Receiver\r\n")?;
+        write!(stdout, "Select mode:\r\n")?;
+        write!(
+            stdout,
+            "1. Send trade (transfer crops/money to another player)\r\n"
+        )?;
+        write!(stdout, "2. Receive trade (listen for incoming trades)\r\n")?;
+        write!(stdout, "3. Cancel\r\n")?;
 
         let mut selected = String::new();
         io::stdin().read_line(&mut selected)?;
 
-        if let Ok(selected) = selected.trim().parse::<usize>() {
-            if selected == 1 {
-                write!(stdout, "You selected Sender.\r\n")?;
-                // Implement sender logic here
-            } else if selected == 2 {
-                write!(stdout, "You selected Receiver.\r\n")?;
-                // Implement receiver logic here
-            } else {
-                write!(stdout, "😖 Invalid selection.")?;
+        match selected.trim().parse::<usize>() {
+            Ok(1) => {
+                self.handle_send_trade(stdout, trade_manager)?;
             }
-        } else {
-            write!(stdout, "😖 Invalid input.\r\n")?;
-            return Ok(());
+            Ok(2) => {
+                self.handle_receive_trade(stdout, trade_manager)?;
+            }
+            Ok(3) => {
+                write!(stdout, "❌ Trade cancelled.\r\n")?;
+            }
+            _ => {
+                write!(stdout, "😖 Invalid selection.\r\n")?;
+            }
         }
+
+        Ok(())
+    }
+
+    fn handle_send_trade(
+        &mut self,
+        stdout: &mut StdoutLock,
+        trade_manager: &TradeManager,
+    ) -> Result<()> {
+        write!(stdout, "\n📤 Send Trade\r\n")?;
+
+        // Get peer endpoint ID
+        write!(stdout, "Enter peer's Endpoint ID:\r\n")?;
+        let mut endpoint_input = String::new();
+        io::stdin().read_line(&mut endpoint_input)?;
+
+        let endpoint_id =
+            EndpointId::from_str(endpoint_input.trim()).context("Invalid Endpoint ID format")?;
+
+        // Choose what to send
+        write!(stdout, "\nWhat do you want to send?\r\n")?;
+        write!(stdout, "1. Money\r\n")?;
+        write!(stdout, "2. Crop\r\n")?;
+
+        let mut choice = String::new();
+        io::stdin().read_line(&mut choice)?;
+
+        let trade_item = match choice.trim().parse::<usize>() {
+            Ok(1) => {
+                // Send money
+                write!(stdout, "Enter amount of money to send:\r\n")?;
+                let mut amount_input = String::new();
+                io::stdin().read_line(&mut amount_input)?;
+                let amount = amount_input
+                    .trim()
+                    .parse::<u32>()
+                    .context("Invalid amount")?;
+
+                if self.player.money < amount {
+                    write!(
+                        stdout,
+                        "❌ Not enough money! You have {} coins.\r\n",
+                        self.player.money
+                    )?;
+                    return Ok(());
+                }
+
+                TradeItem {
+                    item_type: TradeItemType::Money,
+                    amount: Some(amount),
+                    crop: None,
+                }
+            }
+            Ok(2) => {
+                // Send crop
+                if self.player.inventory.is_empty() {
+                    write!(stdout, "❌ No crops in inventory!\r\n")?;
+                    return Ok(());
+                }
+
+                write!(stdout, "Your inventory:\r\n")?;
+                for (index, crop) in self.player.inventory.iter().enumerate() {
+                    write!(stdout, "{}. {}\r\n", index + 1, crop.name)?;
+                }
+
+                write!(stdout, "Select crop by number:\r\n")?;
+                let mut crop_input = String::new();
+                io::stdin().read_line(&mut crop_input)?;
+                let crop_index = crop_input
+                    .trim()
+                    .parse::<usize>()
+                    .context("Invalid crop selection")?;
+
+                if crop_index == 0 || crop_index > self.player.inventory.len() {
+                    write!(stdout, "❌ Invalid selection!\r\n")?;
+                    return Ok(());
+                }
+
+                let crop = self.player.inventory[crop_index - 1].clone();
+
+                TradeItem {
+                    item_type: TradeItemType::Crop,
+                    amount: None,
+                    crop: Some(crop),
+                }
+            }
+            _ => {
+                write!(stdout, "❌ Invalid choice!\r\n")?;
+                return Ok(());
+            }
+        };
+
+        // Perform the trade
+        write!(stdout, "\n📡 Initiating trade...\r\n")?;
+        let game_state_arc = Arc::new(Mutex::new(self.clone()));
+
+        match trade_manager.send_trade(endpoint_id, trade_item, game_state_arc.clone()) {
+            Ok(_) => {
+                // Update local game state
+                let updated_state = tokio::runtime::Runtime::new()?
+                    .block_on(async { game_state_arc.lock().await.clone() });
+                *self = updated_state;
+                self.save()?;
+            }
+            Err(e) => {
+                write!(stdout, "❌ Trade failed: {}\r\n", e)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_receive_trade(
+        &mut self,
+        stdout: &mut StdoutLock,
+        trade_manager: &TradeManager,
+    ) -> Result<()> {
+        write!(stdout, "\n📥 Receive Trade\r\n")?;
+        write!(stdout, "Waiting for incoming trades...\r\n")?;
+        write!(stdout, "(Will timeout after 60 seconds)\r\n\n")?;
+
+        trade_manager.listen_for_trades(60)?;
+
+        // Reload game state as it may have been updated
+        *self = GameState::load_or_create()?;
 
         Ok(())
     }
