@@ -3,14 +3,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_channel::Sender;
 use iroh::{
+    Endpoint, EndpointId,
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler, Router},
-    Endpoint, EndpointId,
 };
-use n0_future::{boxed::BoxStream, Stream};
+use n0_future::{Stream, boxed::BoxStream, task};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex};
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio::sync::{Mutex, broadcast};
+use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
 use crate::{
     crop::Crop,
@@ -71,15 +71,11 @@ impl Trade {
 
         let (mut send, mut recv) = connection.accept_bi().await?;
 
-        // Read the trade item from sender
-        println!("[RECEIVER] Waiting to receive trade item...");
         let mut buffer = Vec::new();
         tokio::io::copy(&mut recv, &mut buffer).await?;
-        println!("[RECEIVER] Received {} bytes", buffer.len());
 
         let trade_item: TradeItem =
             serde_json::from_slice(&buffer).map_err(|err| AcceptError::from_err(err))?;
-        println!("[RECEIVER] Parsed trade item: {:?}", trade_item.item_type);
 
         self.event_sender
             .send(AcceptTradeEvent::TradeReceived {
@@ -90,7 +86,6 @@ impl Trade {
             })
             .ok();
 
-        // Prepare acceptance response
         let acceptance = serde_json::json!({
             "status": "trade_accepted",
             "item_type": trade_item.item_type,
@@ -100,15 +95,8 @@ impl Trade {
 
         let acceptance_bytes =
             serde_json::to_vec(&acceptance).map_err(|err| AcceptError::from_err(err))?;
-
-        // Send response to sender
-        println!(
-            "[RECEIVER] Sending acceptance response ({} bytes)...",
-            acceptance_bytes.len()
-        );
         tokio::io::copy(&mut acceptance_bytes.as_slice(), &mut send).await?;
         send.finish()?;
-        println!("[RECEIVER] Response sent and stream finished");
 
         // Update the shared game state
         {
@@ -127,19 +115,14 @@ impl Trade {
             }
 
             // Save the updated state to disk
-            println!("[RECEIVER] Saving updated game state...");
             gs.save().unwrap();
-            println!("[RECEIVER] Game state saved successfully");
         }
 
         self.event_sender
             .send(AcceptTradeEvent::TradeCompleted { endpoint_id })
             .ok();
 
-        // Wait a bit to ensure sender receives the response before connection closes
-        println!("[RECEIVER] Waiting before closing connection...");
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        println!("[RECEIVER] Done processing trade");
+        connection.close(1u8.into(), b"done");
 
         Ok(())
     }
@@ -194,19 +177,12 @@ impl TradeNode {
         trade_item: TradeItem,
         game_state: Arc<Mutex<GameState>>,
     ) -> Result<()> {
-        // Connect to the receiver
-        println!("[SENDER] Connecting to receiver...");
         let connection = endpoint.connect(endpoint_id, Trade::ALPN).await?;
-        println!("[SENDER] Connected successfully");
         event_sender.send(TradeEvent::Connected).await?;
 
-        // Open a bidirectional stream
-        println!("[SENDER] Opening bidirectional stream...");
         let (mut send_stream, mut recv_stream) = connection.open_bi().await?;
-        println!("[SENDER] Stream opened");
-
-        // Serialize and send the trade item
         let payload = serde_json::to_vec(&trade_item)?;
+
         event_sender
             .send(TradeEvent::TradeProposed {
                 item_type: trade_item.item_type.clone(),
@@ -214,42 +190,21 @@ impl TradeNode {
                 crop: trade_item.crop.clone(),
             })
             .await?;
-
-        println!("[SENDER] Sending trade item ({} bytes)...", payload.len());
         tokio::io::copy(&mut payload.as_slice(), &mut send_stream).await?;
         send_stream.finish()?;
-        println!("[SENDER] Trade item sent, stream finished");
 
-        // Wait for response from receiver
-        println!("[SENDER] Waiting for response...");
         let mut buffer = Vec::new();
-        let bytes_read = tokio::io::copy(&mut recv_stream, &mut buffer).await?;
-        println!("[SENDER] Received {} bytes", bytes_read);
+        tokio::io::copy(&mut recv_stream, &mut buffer).await?;
 
-        if bytes_read == 0 || buffer.is_empty() {
-            return Err(anyhow::anyhow!(
-                "No response from receiver - connection closed early"
-            ));
-        }
-
-        // Parse the response
-        println!("[SENDER] Parsing response...");
         let res: serde_json::Value = serde_json::from_slice(&buffer)?;
-        println!("[SENDER] Response parsed: {:?}", res);
 
         if res["status"] == "trade_accepted" {
-            println!("[SENDER] Trade accepted! Updating game state...");
-            // Update sender's game state
             let mut gs = game_state.lock().await;
 
             match trade_item.item_type {
                 TradeItemType::Money => {
                     if let Some(amount) = trade_item.amount {
-                        if gs.player.money >= amount {
-                            gs.player.money -= amount;
-                        } else {
-                            return Err(anyhow::anyhow!("Insufficient funds"));
-                        }
+                        gs.player.money -= amount;
                     }
                 }
                 TradeItemType::Crop => {
@@ -257,17 +212,13 @@ impl TradeNode {
                         if let Some(pos) = gs.player.inventory.iter().position(|c| c.id == crop.id)
                         {
                             gs.player.inventory.remove(pos);
-                        } else {
-                            return Err(anyhow::anyhow!("Crop not found in inventory"));
                         }
                     }
                 }
             }
 
             // Save the updated state
-            println!("[SENDER] Saving updated game state...");
             gs.save()?;
-            println!("[SENDER] Game state saved");
 
             event_sender
                 .send(TradeEvent::TradeAccepted {
@@ -276,14 +227,9 @@ impl TradeNode {
                     crop: trade_item.crop,
                 })
                 .await?;
-        } else {
-            return Err(anyhow::anyhow!("Trade was not accepted by receiver"));
         }
 
-        // Close the connection gracefully
-        println!("[SENDER] Closing connection...");
-        connection.close(0u8.into(), b"trade complete");
-        println!("[SENDER] Trade completed successfully");
+        connection.close(1u8.into(), b"done");
 
         Ok(())
     }
@@ -297,8 +243,7 @@ impl TradeNode {
         let endpoint = self.router.endpoint().clone();
         let game_state = self.game_state.clone();
 
-        tokio::spawn(async move {
-            println!("[SENDER] Task spawned, starting trade...");
+        task::spawn(async move {
             let res = Self::initiate_trade(
                 &endpoint,
                 endpoint_id,
