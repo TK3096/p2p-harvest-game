@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{event::input::InputEvent, player::Player};
 
-const STATE_FILE: &str = ".game_state.json";
+const STATE_FILE: &str = ".game-state.json";
 const STARTING_DAY: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
