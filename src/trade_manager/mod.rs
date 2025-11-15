@@ -45,19 +45,18 @@ impl TradeManager {
             .map(|node| node.get_endpoint().id())
     }
 
-    pub fn send_trade(
-        &self,
-        remote_endpoint_id: EndpointId,
-        trade_item: TradeItem,
-        game_state: Arc<Mutex<GameState>>,
-    ) -> Result<()> {
+    pub fn get_game_state(&self) -> Option<Arc<Mutex<GameState>>> {
+        self.trade_node.as_ref().map(|node| node.get_game_state())
+    }
+
+    pub fn send_trade(&self, remote_endpoint_id: EndpointId, trade_item: TradeItem) -> Result<()> {
         let trade_node = self
             .trade_node
             .as_ref()
             .context("Trade node not initialized")?;
 
         self.runtime.block_on(async {
-            let mut stream = trade_node.trade(remote_endpoint_id, trade_item, game_state);
+            let mut stream = trade_node.trade(remote_endpoint_id, trade_item);
 
             while let Some(event) = stream.next().await {
                 match event {

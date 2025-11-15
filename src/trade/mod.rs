@@ -25,16 +25,19 @@ pub struct TradeItem {
     pub crop: Option<Crop>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Trade {
-    game_state: GameState,
+    game_state: Arc<Mutex<GameState>>,
     event_sender: broadcast::Sender<AcceptTradeEvent>,
 }
 
 impl Trade {
     pub const ALPN: &[u8] = b"/p2p-harvest-game/trade/1.0.0";
 
-    pub fn new(event_sender: broadcast::Sender<AcceptTradeEvent>, game_state: GameState) -> Self {
+    pub fn new(
+        event_sender: broadcast::Sender<AcceptTradeEvent>,
+        game_state: Arc<Mutex<GameState>>,
+    ) -> Self {
         Self {
             event_sender,
             game_state,
@@ -42,7 +45,7 @@ impl Trade {
     }
 
     async fn handle_connection(
-        mut self,
+        self,
         connection: Connection,
     ) -> std::result::Result<(), AcceptError> {
         let endpoint_id = connection.remote_id();
@@ -61,7 +64,7 @@ impl Trade {
     }
 
     async fn handle_connection_0(
-        &mut self,
+        &self,
         connection: &Connection,
     ) -> std::result::Result<(), AcceptError> {
         let endpoint_id = connection.remote_id();
@@ -84,7 +87,7 @@ impl Trade {
             .ok();
 
         let acceptance = serde_json::json!({
-            "status": "trade_accpeted",
+            "status": "trade_accepted",
             "item_type": trade_item.item_type,
             "amount": trade_item.amount,
             "crop": trade_item.crop,
@@ -95,17 +98,24 @@ impl Trade {
         tokio::io::copy(&mut acceptance_bytes.as_slice(), &mut send).await?;
         send.finish()?;
 
-        match trade_item.item_type {
-            TradeItemType::Money => {
-                if let Some(amount) = trade_item.amount {
-                    self.game_state.player.money += amount;
+        // Update the shared game state
+        {
+            let mut gs = self.game_state.lock().await;
+            match trade_item.item_type {
+                TradeItemType::Money => {
+                    if let Some(amount) = trade_item.amount {
+                        gs.player.money += amount;
+                    }
+                }
+                TradeItemType::Crop => {
+                    if let Some(crop) = trade_item.crop {
+                        gs.player.inventory.push(crop);
+                    }
                 }
             }
-            TradeItemType::Crop => {
-                if let Some(crop) = trade_item.crop {
-                    self.game_state.player.inventory.push(crop);
-                }
-            }
+
+            // Save the updated state to disk
+            gs.save().unwrap();
         }
 
         self.event_sender
@@ -124,32 +134,40 @@ impl ProtocolHandler for Trade {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TradeNode {
     router: Router,
     accept_events: broadcast::Sender<AcceptTradeEvent>,
+    game_state: Arc<Mutex<GameState>>,
 }
 
 impl TradeNode {
     pub async fn spawn(game_state: GameState) -> Result<Self> {
-        let endpoint_id = iroh::Endpoint::builder()
+        let endpoint_builder = iroh::Endpoint::builder()
             .alpns(vec![Trade::ALPN.to_vec()])
             .bind()
             .await?;
+
+        let game_state_arc = Arc::new(Mutex::new(game_state));
         let (event_sender, _) = broadcast::channel(128);
-        let trade = Trade::new(event_sender.clone(), game_state.clone());
-        let router = Router::builder(endpoint_id)
+        let trade = Trade::new(event_sender.clone(), game_state_arc.clone());
+        let router = Router::builder(endpoint_builder)
             .accept(Trade::ALPN, trade)
             .spawn();
 
         Ok(Self {
             router,
             accept_events: event_sender,
+            game_state: game_state_arc,
         })
     }
 
     pub fn get_endpoint(&self) -> &Endpoint {
         self.router.endpoint()
+    }
+
+    pub fn get_game_state(&self) -> Arc<Mutex<GameState>> {
+        self.game_state.clone()
     }
 
     async fn initiate_trade(
@@ -162,7 +180,7 @@ impl TradeNode {
         let connection = endpoint.connect(endpoint_id, Trade::ALPN).await?;
         event_sender.send(TradeEvent::Connected).await?;
 
-        let (mut send_stream, mut recv_stream) = connection.accept_bi().await?;
+        let (mut send_stream, mut recv_stream) = connection.open_bi().await?;
         let payload = serde_json::to_vec(&trade_item)?;
 
         event_sender
@@ -180,7 +198,7 @@ impl TradeNode {
 
         let res: serde_json::Value = serde_json::from_slice(&buffer)?;
 
-        if res["state"] == "trade_accepted" {
+        if res["status"] == "trade_accepted" {
             let mut gs = game_state.lock().await;
 
             match trade_item.item_type {
@@ -198,6 +216,9 @@ impl TradeNode {
                     }
                 }
             }
+
+            // Save the updated state
+            gs.save()?;
 
             event_sender
                 .send(TradeEvent::TradeAccepted {
@@ -217,10 +238,10 @@ impl TradeNode {
         &self,
         endpoint_id: EndpointId,
         trade_item: TradeItem,
-        game_state: Arc<Mutex<GameState>>,
     ) -> impl Stream<Item = TradeEvent> + Unpin + use<> {
         let (event_sender, event_receiver) = async_channel::bounded(16);
         let endpoint = self.router.endpoint().clone();
+        let game_state = self.game_state.clone();
 
         task::spawn(async move {
             let res = Self::initiate_trade(

@@ -3,7 +3,6 @@ use std::{
     io::{self, Read, StdoutLock, Write},
     path::Path,
     str::FromStr,
-    sync::Arc,
 };
 
 use anyhow::{Context, Result};
@@ -13,7 +12,6 @@ use crossterm::{
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 use crate::{
     event::{input::InputEvent, trade::TradeItemType},
@@ -66,7 +64,7 @@ impl GameState {
         }
     }
 
-    fn save(&self) -> Result<()> {
+    pub fn save(&self) -> Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
             .read(true)
@@ -434,19 +432,13 @@ impl GameState {
 
         // Perform the trade
         write!(stdout, "\n📡 Initiating trade...\r\n")?;
-        let game_state_arc = Arc::new(Mutex::new(self.clone()));
 
-        match trade_manager.send_trade(endpoint_id, trade_item, game_state_arc.clone()) {
-            Ok(_) => {
-                // Update local game state
-                let updated_state = tokio::runtime::Runtime::new()?
-                    .block_on(async { game_state_arc.lock().await.clone() });
-                *self = updated_state;
-                self.save()?;
-            }
-            Err(e) => {
-                write!(stdout, "❌ Trade failed: {}\r\n", e)?;
-            }
+        trade_manager.send_trade(endpoint_id, trade_item)?;
+
+        // Reload game state from the shared state in TradeNode
+        if let Some(game_state_arc) = trade_manager.get_game_state() {
+            let rt = tokio::runtime::Runtime::new()?;
+            *self = rt.block_on(async { game_state_arc.lock().await.clone() });
         }
 
         Ok(())
