@@ -122,8 +122,6 @@ impl Trade {
             .send(AcceptTradeEvent::TradeCompleted { endpoint_id })
             .ok();
 
-        connection.close(1u8.into(), b"done");
-
         Ok(())
     }
 }
