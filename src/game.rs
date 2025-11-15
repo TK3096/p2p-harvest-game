@@ -2,25 +2,14 @@ use std::{
     fs::{File, OpenOptions},
     io::{self, Read, StdoutLock, Write},
     path::Path,
-    time::Duration,
 };
 
 use anyhow::{Context, Result};
 use crossterm::{
     QueueableCommand,
-    cursor::MoveTo,
-    event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    },
-    execute,
     style::{Color, ResetColor, SetForegroundColor},
-    terminal::{
-        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-        enable_raw_mode,
-    },
 };
 use serde::{Deserialize, Serialize};
-use tokio::fs::write;
 
 use crate::{
     message,
