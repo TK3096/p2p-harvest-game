@@ -11,14 +11,14 @@ use crossterm::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{event::input::InputEvent, player::Player};
+use crate::{event::input::InputEvent, player::Player, trade::TradeNode};
 
 const STATE_FILE: &str = ".game-state.json";
 const STARTING_DAY: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameState {
-    player: Player,
+    pub player: Player,
     day: u32,
 }
 
@@ -94,7 +94,10 @@ impl GameState {
     pub fn run_game_loop(&mut self, stdout: &mut StdoutLock) -> Result<()> {
         loop {
             write!(stdout, "Control Instructions:\r\n")?;
-            write!(stdout, "🎮 plant/water/harvest/sleep/status/quit 🎮\r\n")?;
+            write!(
+                stdout,
+                "🎮 plant/water/harvest/sleep/status/trade/quit 🎮\r\n"
+            )?;
 
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
@@ -122,6 +125,9 @@ impl GameState {
                     }
                     InputEvent::Status => {
                         self.display_status(stdout)?;
+                    }
+                    InputEvent::Trade => {
+                        self.handle_trade(stdout)?;
                     }
                 }
             } else {
@@ -280,6 +286,35 @@ impl GameState {
                     Color::Blue,
                 )?;
             }
+        }
+
+        Ok(())
+    }
+
+    fn handle_trade(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        write!(stdout, "🎁 Trade your crops.\r\n")?;
+        writeln!(stdout)?;
+
+        write!(stdout, "Select sender/receiver by number\r\n")?;
+        write!(stdout, "1. Sedner\r\n")?;
+        write!(stdout, "2. Receiver\r\n")?;
+
+        let mut selected = String::new();
+        io::stdin().read_line(&mut selected)?;
+
+        if let Ok(selected) = selected.trim().parse::<usize>() {
+            if selected == 1 {
+                write!(stdout, "You selected Sender.\r\n")?;
+                // Implement sender logic here
+            } else if selected == 2 {
+                write!(stdout, "You selected Receiver.\r\n")?;
+                // Implement receiver logic here
+            } else {
+                write!(stdout, "😖 Invalid selection.")?;
+            }
+        } else {
+            write!(stdout, "😖 Invalid input.\r\n")?;
+            return Ok(());
         }
 
         Ok(())

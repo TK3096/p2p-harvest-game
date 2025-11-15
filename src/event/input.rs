@@ -5,6 +5,7 @@ pub enum InputEvent {
     WaterCrops,
     HarvestCrops,
     Status,
+    Trade,
     Quit,
 }
 
@@ -16,6 +17,7 @@ impl InputEvent {
             "water" | "w" => Some(InputEvent::WaterCrops),
             "harvest" | "h" => Some(InputEvent::HarvestCrops),
             "status" | "i" => Some(InputEvent::Status),
+            "trade" | "t" => Some(InputEvent::Trade),
             "quit" | "q" => Some(InputEvent::Quit),
             _ => None,
         }
