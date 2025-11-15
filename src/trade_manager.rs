@@ -55,9 +55,13 @@ impl TradeManager {
             .as_ref()
             .context("Trade node not initialized")?;
 
+        println!("[TRADE_MANAGER] Starting send_trade...");
+
         self.runtime.block_on(async {
+            println!("[TRADE_MANAGER] Calling trade_node.trade()...");
             let mut stream = trade_node.trade(remote_endpoint_id, trade_item);
 
+            println!("[TRADE_MANAGER] Starting to consume stream...");
             while let Some(event) = stream.next().await {
                 match event {
                     TradeEvent::Connected => {
@@ -101,6 +105,7 @@ impl TradeManager {
                     }
                 }
             }
+            println!("[TRADE_MANAGER] Stream consumed");
             Ok(())
         })
     }
