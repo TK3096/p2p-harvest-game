@@ -19,6 +19,7 @@ use tokio::sync::{Mutex, mpsc};
 use crate::{
     event::{input::InputEvent, trade::TradeItemType},
     player::Player,
+    seasson::Season,
     trade::TradeItem,
     trade_manager::TradeManager,
 };
@@ -33,6 +34,21 @@ pub struct GameState {
     day: u32,
     #[serde(default)]
     last_day_change: Option<DateTime<Utc>>,
+    #[serde(skip)]
+    current_season: Option<Season>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SeasonChange {
+    pub old_season: Season,
+    pub new_season: Season,
+    pub day: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct DayChangeNotification {
+    pub new_day: u32,
+    pub season_change: Option<SeasonChange>,
 }
 
 impl GameState {
@@ -41,6 +57,7 @@ impl GameState {
             player,
             day: STARTING_DAY,
             last_day_change: Some(Utc::now()),
+            current_season: Some(Season::from_day(STARTING_DAY)),
         }
     }
 
@@ -52,10 +69,57 @@ impl GameState {
         self.last_day_change
     }
 
-    pub fn advance_next_day(&mut self) {
+    pub fn get_current_season(&self) -> Season {
+        self.current_season
+            .unwrap_or_else(|| Season::from_day(self.day))
+    }
+
+    pub fn advance_next_day(&mut self) -> Option<SeasonChange> {
+        let old_season = self.get_current_season();
+
         self.player.sleep();
         self.day += 1;
         self.last_day_change = Some(Utc::now());
+
+        let new_season = Season::from_day(self.day);
+        self.current_season = Some(new_season);
+
+        if old_season != new_season {
+            self.handle_season_change(old_season, new_season);
+
+            Some(SeasonChange {
+                old_season,
+                new_season,
+                day: self.day,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn handle_season_change(&mut self, old_season: Season, new_season: Season) {
+        let mut died_crops = Vec::new();
+
+        self.player.fields.retain(|crop| {
+            if crop.dies_in_season(new_season) {
+                died_crops.push(crop.name.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        if !died_crops.is_empty() {
+            println!(
+                "\n⚠️  Season changed from {} to {}!",
+                old_season, new_season
+            );
+            println!("❄️  The following crops have withered:");
+            for crop_name in died_crops {
+                println!("   - {}", crop_name);
+            }
+            println!();
+        }
     }
 
     pub fn load_or_create() -> Result<Self> {
@@ -72,8 +136,11 @@ impl GameState {
 
             if game_state.last_day_change.is_none() {
                 game_state.last_day_change = Some(Utc::now());
-                game_state.save()?;
             }
+
+            game_state.current_season = Some(Season::from_day(game_state.day));
+
+            game_state.save()?;
 
             Ok(game_state)
         } else {
@@ -123,7 +190,7 @@ impl GameState {
 
         let game_state_arc = Arc::new(Mutex::new(self.clone()));
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<u32>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<DayChangeNotification>();
 
         let game_state_clone = game_state_arc.clone();
         std::thread::spawn(move || {
@@ -144,14 +211,30 @@ impl GameState {
         stdout: &mut StdoutLock,
         trade_manager: TradeManager,
         game_state_arc: Arc<Mutex<GameState>>,
-        day_rx: &mut mpsc::UnboundedReceiver<u32>,
+        day_rx: &mut mpsc::UnboundedReceiver<DayChangeNotification>,
     ) -> Result<()> {
         loop {
-            if let Ok(new_day) = day_rx.try_recv() {
+            if let Ok(notification) = day_rx.try_recv() {
                 write!(stdout, "\r\n")?;
                 write!(stdout, "⏰ Time has passed! A new day has begun!\r\n")?;
-                write!(stdout, "🌞 Welcome to day {}!\r\n", new_day)?;
+                write!(stdout, "🌞 Welcome to day {}!\r\n", notification.new_day)?;
                 write!(stdout, "💤 You feel well rested! Energy restored.\r\n")?;
+
+                if let Some(season_change) = notification.season_change {
+                    write!(stdout, "\r\n")?;
+                    write!(stdout, "🎉 ═══════════════════════════════════ 🎉\r\n")?;
+                    write!(stdout, "   Season Changed!\r\n")?;
+                    write!(
+                        stdout,
+                        "   {} {} → {} {}\r\n",
+                        season_change.old_season.icon(),
+                        season_change.old_season.name(),
+                        season_change.new_season.icon(),
+                        season_change.new_season.name()
+                    )?;
+                    write!(stdout, "🎉 ═══════════════════════════════════ 🎉\r\n")?;
+                }
+
                 write!(stdout, "\r\n")?;
                 stdout.flush()?;
 
@@ -216,8 +299,18 @@ impl GameState {
         write!(stdout, "💤 Good night...\r\n")?;
         write!(stdout, "🌞 End of day {}\r\n", self.day)?;
 
-        self.advance_next_day();
+        let season_change = self.advance_next_day();
         self.save()?;
+
+        if let Some(change) = season_change {
+            write!(stdout, "\r\n")?;
+            write!(
+                stdout,
+                "🎉 Season Changed! {} → {}\r\n",
+                change.old_season, change.new_season
+            )?;
+            write!(stdout, "\r\n")?;
+        }
 
         write!(stdout, "💾 Save completed...\r\n")?;
         stdout.flush()?;
@@ -304,9 +397,21 @@ impl GameState {
     }
 
     fn display_status(&mut self, stdout: &mut StdoutLock) -> Result<()> {
+        let current_season = self.get_current_season();
+        let year = Season::year(self.day);
+        let day_in_season = Season::day_in_season(self.day);
+
         write!(stdout, "📊 Player Status:\r\n")?;
         write!(stdout, "👤 Name: {}\r\n", self.player.name)?;
-        write!(stdout, "🗓️  Day: {}\r\n", self.day)?;
+        write!(
+            stdout,
+            "🗓️  Day: {} (Year: {}, {} Day {})\r\n",
+            self.day,
+            year,
+            current_season.name(),
+            day_in_season
+        )?;
+        write!(stdout, "🌍 Season: {}\r\n", current_season)?;
 
         if let Some(last_change) = self.last_day_change {
             let now = Utc::now();
@@ -568,7 +673,7 @@ fn draw_status_bar(
 
 async fn monitor_day_changes(
     game_state: Arc<Mutex<GameState>>,
-    day_tx: mpsc::UnboundedSender<u32>,
+    day_tx: mpsc::UnboundedSender<DayChangeNotification>,
 ) {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
 
@@ -584,17 +689,24 @@ async fn monitor_day_changes(
             if elapsed >= Duration::minutes(AUTO_DAY_CHANGE_MINUTES) {
                 let days_passed = elapsed.num_minutes() / AUTO_DAY_CHANGE_MINUTES;
 
+                let mut last_season_change = None;
+
                 for _ in 0..days_passed {
-                    state.advance_next_day();
+                    if let Some(season_change) = state.advance_next_day() {
+                        last_season_change = Some(season_change);
+                    }
                 }
 
                 if let Err(_) = state.save() {
-                    eprintln!("Failed to save game state during auto day change.");
+                    eprintln!("Failed to save game state");
                 }
 
                 let new_day = state.get_day();
 
-                let _ = day_tx.send(new_day);
+                let _ = day_tx.send(DayChangeNotification {
+                    new_day,
+                    season_change: last_season_change,
+                });
             }
         }
     }
