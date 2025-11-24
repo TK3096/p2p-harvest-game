@@ -3,15 +3,18 @@ use std::{
     io::{self, Read, StdoutLock, Write},
     path::Path,
     str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Duration, Utc};
 use crossterm::{
     QueueableCommand,
     style::{Color, ResetColor, SetForegroundColor},
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
+use tokio::sync::{Mutex, mpsc};
 
 use crate::{
     event::{input::InputEvent, trade::TradeItemType},
@@ -22,11 +25,14 @@ use crate::{
 
 const STATE_FILE: &str = ".game-state.json";
 const STARTING_DAY: u32 = 1;
+const AUTO_DAY_CHANGE_MINUTES: i64 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameState {
     pub player: Player,
     day: u32,
+    #[serde(default)]
+    last_day_change: Option<DateTime<Utc>>,
 }
 
 impl GameState {
@@ -34,7 +40,22 @@ impl GameState {
         Self {
             player,
             day: STARTING_DAY,
+            last_day_change: Some(Utc::now()),
         }
+    }
+
+    pub fn get_day(&self) -> u32 {
+        self.day
+    }
+
+    pub fn get_last_day_change(&self) -> Option<DateTime<Utc>> {
+        self.last_day_change
+    }
+
+    pub fn advance_next_day(&mut self) {
+        self.player.sleep();
+        self.day += 1;
+        self.last_day_change = Some(Utc::now());
     }
 
     pub fn load_or_create() -> Result<Self> {
@@ -46,8 +67,13 @@ impl GameState {
             file.read_to_string(&mut content)
                 .with_context(|| "Failed to read game state file")?;
 
-            let game_state = serde_json::from_str(&content)
+            let mut game_state: GameState = serde_json::from_str(&content)
                 .with_context(|| "Failed to parse game state file")?;
+
+            if game_state.last_day_change.is_none() {
+                game_state.last_day_change = Some(Utc::now());
+                game_state.save()?;
+            }
 
             Ok(game_state)
         } else {
@@ -95,8 +121,20 @@ impl GameState {
         let mut trade_manager = TradeManager::new()?;
         trade_manager.initialize(self.clone())?;
 
+        let game_state_arc = Arc::new(Mutex::new(self.clone()));
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<u32>();
+
+        let game_state_clone = game_state_arc.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                monitor_day_changes(game_state_clone, tx).await;
+            });
+        });
+
         let mut stdout = io::stdout().lock();
-        let result = self.run_game_loop(&mut stdout, trade_manager);
+        let result = self.run_game_loop(&mut stdout, trade_manager, game_state_arc, &mut rx);
 
         result
     }
@@ -105,8 +143,22 @@ impl GameState {
         &mut self,
         stdout: &mut StdoutLock,
         trade_manager: TradeManager,
+        game_state_arc: Arc<Mutex<GameState>>,
+        day_rx: &mut mpsc::UnboundedReceiver<u32>,
     ) -> Result<()> {
         loop {
+            if let Ok(new_day) = day_rx.try_recv() {
+                write!(stdout, "\r\n")?;
+                write!(stdout, "⏰ Time has passed! A new day has begun!\r\n")?;
+                write!(stdout, "🌞 Welcome to day {}!\r\n", new_day)?;
+                write!(stdout, "💤 You feel well rested! Energy restored.\r\n")?;
+                write!(stdout, "\r\n")?;
+                stdout.flush()?;
+
+                let rt = tokio::runtime::Runtime::new()?;
+                *self = rt.block_on(async { game_state_arc.lock().await.clone() });
+            }
+
             write!(stdout, "Control Instructions:\r\n")?;
             write!(
                 stdout,
@@ -127,6 +179,11 @@ impl GameState {
                     }
                     InputEvent::Sleep => {
                         self.handle_sleep(stdout)?;
+
+                        let rt = tokio::runtime::Runtime::new()?;
+                        rt.block_on(async {
+                            *game_state_arc.lock().await = self.clone();
+                        });
                     }
                     InputEvent::PlantCrop => {
                         self.handle_plant_crop(stdout)?;
@@ -159,8 +216,7 @@ impl GameState {
         write!(stdout, "💤 Good night...\r\n")?;
         write!(stdout, "🌞 End of day {}\r\n", self.day)?;
 
-        self.player.sleep();
-        self.day += 1;
+        self.advance_next_day();
         self.save()?;
 
         write!(stdout, "💾 Save completed...\r\n")?;
@@ -251,6 +307,21 @@ impl GameState {
         write!(stdout, "📊 Player Status:\r\n")?;
         write!(stdout, "👤 Name: {}\r\n", self.player.name)?;
         write!(stdout, "🗓️  Day: {}\r\n", self.day)?;
+
+        if let Some(last_change) = self.last_day_change {
+            let now = Utc::now();
+            let elapsed = now.signed_duration_since(last_change);
+            let remaining = Duration::minutes(AUTO_DAY_CHANGE_MINUTES) - elapsed;
+
+            if remaining.num_seconds() > 0 {
+                let mins = remaining.num_minutes();
+                let secs = remaining.num_seconds() % 60;
+                write!(stdout, "⏰ Next auto-day in: {}m {}s\r\n", mins, secs)?;
+            } else {
+                write!(stdout, "⏰ Next auto-day: Ready!\r\n")?;
+            }
+        }
+
         draw_status_bar(
             stdout,
             "🔋 Energy: ",
@@ -493,4 +564,38 @@ fn draw_status_bar(
     write!(stdout, "] {}\r\n", surfix_label)?;
 
     Ok(())
+}
+
+async fn monitor_day_changes(
+    game_state: Arc<Mutex<GameState>>,
+    day_tx: mpsc::UnboundedSender<u32>,
+) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+
+    loop {
+        interval.tick().await;
+
+        let mut state = game_state.lock().await;
+
+        if let Some(last_change) = state.get_last_day_change() {
+            let now = Utc::now();
+            let elapsed = now.signed_duration_since(last_change);
+
+            if elapsed >= Duration::minutes(AUTO_DAY_CHANGE_MINUTES) {
+                let days_passed = elapsed.num_minutes() / AUTO_DAY_CHANGE_MINUTES;
+
+                for _ in 0..days_passed {
+                    state.advance_next_day();
+                }
+
+                if let Err(_) = state.save() {
+                    eprintln!("Failed to save game state during auto day change.");
+                }
+
+                let new_day = state.get_day();
+
+                let _ = day_tx.send(new_day);
+            }
+        }
+    }
 }
