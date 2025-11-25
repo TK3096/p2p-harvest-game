@@ -14,6 +14,18 @@ A peer-to-peer multiplayer harvest game built with Rust and Iroh networking. Pla
 
 ## Prerequisites
 
+### For Web UI
+
+1. **Rust** - Required for building WASM
+2. **wasm-pack** - Tool for building Rust to WebAssembly
+   ```bash
+   curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+   ```
+3. **Node.js** (v18+) - For the React frontend
+   - Download from: https://nodejs.org/
+
+### For CLI or Development
+
 ### Installing Rust
 
 This project requires Rust to build and run. Follow the instructions below for your operating system:
@@ -72,8 +84,34 @@ For more details, visit the official Rust installation guide: https://www.rust-l
 
 ## Usage
 
-### Start a New Game
+### Playing the Game
 
+#### Web UI (Recommended) 🌐
+
+The easiest way to play is through the web interface:
+
+1. Navigate to the web directory:
+   ```bash
+   cd web
+   ```
+
+2. Install dependencies (first time only):
+   ```bash
+   npm install
+   ```
+
+3. Build WASM and start the dev server:
+   ```bash
+   npm run wasm:dev
+   ```
+
+4. Open your browser to `http://localhost:3000`
+
+See [web/README.md](web/README.md) for detailed web UI instructions.
+
+#### Command Line Interface
+
+Start a new game:
 ```bash
 cargo run -- start
 ```
@@ -83,16 +121,12 @@ Or using the release build:
 ./target/release/p2p-harvest-game start
 ```
 
-### Reset Game State
-
-If you want to start fresh and clear your saved progress:
-
+Reset game state:
 ```bash
 cargo run -- reset
 ```
 
-### Available Commands
-
+**Available Commands:**
 - `start` - Start or resume the game
 - `reset` - Reset the game state and start fresh
 
@@ -147,6 +181,12 @@ cargo build --no-default-features --features cli
 Build core library only (WASM-ready):
 ```bash
 cargo build --lib --no-default-features
+```
+
+Build for Web (WASM):
+```bash
+cd web
+npm run wasm:build
 ```
 
 ### Running Tests
@@ -242,19 +282,26 @@ If P2P connectivity is not working, check your firewall settings and ensure the 
 
 ## Future Development
 
-### Immediate
+### Completed ✅
 - [x] Refactored architecture with core/CLI separation
 - [x] Event-driven game engine
 - [x] Feature flags for optional dependencies
-- [ ] Comprehensive unit tests for core logic
-- [ ] Web UI using the core library (WASM)
+- [x] Web UI using React and WASM
+- [x] Auto-save functionality (web)
+- [x] Responsive design for mobile/desktop
 
-### Long-term
-- [ ] Enhanced crop varieties and mechanics
-- [ ] Seasons and weather effects
+### In Progress 🚧
+- [ ] Comprehensive unit tests for core logic
+- [ ] Shop system for buying seeds
+- [ ] More crop varieties
+
+### Long-term 🎯
+- [ ] P2P networking in web UI
+- [ ] Enhanced seasons and weather effects
 - [ ] Achievements and leaderboards
 - [ ] Mobile apps using the same core
 - [ ] Multiplayer lobbies and matchmaking
+- [ ] Sound effects and animations
 
 ## Using the Core Library
 
