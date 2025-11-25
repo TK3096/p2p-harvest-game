@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::seasson::Season;
+use super::season::Season;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crop {

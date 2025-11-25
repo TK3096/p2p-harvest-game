@@ -1,15 +1,12 @@
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 use iroh::EndpointId;
+use std::sync::Arc;
 use tokio::{runtime::Runtime, sync::Mutex};
 use tokio_stream::StreamExt;
 
-use crate::{
-    event::trade::{AcceptTradeEvent, TradeEvent, TradeItemType},
-    game::GameState,
-    trade::{TradeItem, TradeNode},
-};
+use crate::core::GameEngine;
+
+use super::trade_protocol::{AcceptTradeEvent, TradeEvent, TradeItem, TradeNode};
 
 pub struct TradeManager {
     runtime: Runtime,
@@ -25,15 +22,10 @@ impl TradeManager {
         })
     }
 
-    pub fn initialize(&mut self, game_state: GameState) -> Result<()> {
+    pub fn initialize(&mut self, game_engine: GameEngine) -> Result<()> {
         let trade_node = self
             .runtime
-            .block_on(async { TradeNode::spawn(game_state).await })?;
-
-        let endpoint_id = trade_node.get_endpoint().id();
-        println!("🔗 Trade Node initialized!");
-        println!("📋 Your Endpoint ID: {}", endpoint_id);
-        println!("Share this ID with other players to trade!\n");
+            .block_on(async { TradeNode::spawn(game_engine).await })?;
 
         self.trade_node = Some(trade_node);
         Ok(())
@@ -45,8 +37,8 @@ impl TradeManager {
             .map(|node| node.get_endpoint().id())
     }
 
-    pub fn get_game_state(&self) -> Option<Arc<Mutex<GameState>>> {
-        self.trade_node.as_ref().map(|node| node.get_game_state())
+    pub fn get_game_engine(&self) -> Option<Arc<Mutex<GameEngine>>> {
+        self.trade_node.as_ref().map(|node| node.get_game_engine())
     }
 
     pub fn send_trade(&self, remote_endpoint_id: EndpointId, trade_item: TradeItem) -> Result<()> {
@@ -67,30 +59,36 @@ impl TradeManager {
                         item_type,
                         amount,
                         crop,
-                    } => match item_type {
-                        TradeItemType::Money => {
-                            println!("💰 Sending {} coins...", amount.unwrap_or(0));
-                        }
-                        TradeItemType::Crop => {
-                            if let Some(crop) = crop {
-                                println!("🌾 Sending {} crop...", crop.name);
+                    } => {
+                        use super::trade_protocol::TradeItemType;
+                        match item_type {
+                            TradeItemType::Money => {
+                                println!("💰 Sending {} coins...", amount.unwrap_or(0));
+                            }
+                            TradeItemType::Crop => {
+                                if let Some(crop) = crop {
+                                    println!("🌾 Sending {} crop...", crop.name);
+                                }
                             }
                         }
-                    },
+                    }
                     TradeEvent::TradeAccepted {
                         item_type,
                         amount,
                         crop,
-                    } => match item_type {
-                        TradeItemType::Money => {
-                            println!("✅ Trade accepted! Sent {} coins", amount.unwrap_or(0));
-                        }
-                        TradeItemType::Crop => {
-                            if let Some(crop) = crop {
-                                println!("✅ Trade accepted! Sent {}", crop.name);
+                    } => {
+                        use super::trade_protocol::TradeItemType;
+                        match item_type {
+                            TradeItemType::Money => {
+                                println!("✅ Trade accepted! Sent {} coins", amount.unwrap_or(0));
+                            }
+                            TradeItemType::Crop => {
+                                if let Some(crop) = crop {
+                                    println!("✅ Trade accepted! Sent {}", crop.name);
+                                }
                             }
                         }
-                    },
+                    }
                     TradeEvent::Closed { error } => {
                         if let Some(err) = error {
                             println!("❌ Trade failed: {}", err);
@@ -134,6 +132,7 @@ impl TradeManager {
                                 amount,
                                 crop,
                             } => {
+                                use super::trade_protocol::TradeItemType;
                                 println!("📦 Trade received from {}", endpoint_id);
                                 match item_type {
                                     TradeItemType::Money => {

@@ -12,11 +12,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
-use crate::{
-    crop::Crop,
-    event::trade::{AcceptTradeEvent, TradeEvent, TradeItemType},
-    game::GameState,
-};
+use crate::core::{GameEngine, crop::Crop};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TradeItemType {
+    Crop,
+    Money,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeItem {
@@ -25,9 +27,47 @@ pub struct TradeItem {
     pub crop: Option<Crop>,
 }
 
+#[derive(Debug, Clone)]
+pub enum TradeEvent {
+    Connected,
+    TradeProposed {
+        item_type: TradeItemType,
+        amount: Option<u32>,
+        crop: Option<Crop>,
+    },
+    TradeAccepted {
+        item_type: TradeItemType,
+        amount: Option<u32>,
+        crop: Option<Crop>,
+    },
+    Closed {
+        error: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum AcceptTradeEvent {
+    Connected {
+        endpoint_id: EndpointId,
+    },
+    TradeReceived {
+        endpoint_id: EndpointId,
+        item_type: TradeItemType,
+        amount: Option<u32>,
+        crop: Option<Crop>,
+    },
+    TradeCompleted {
+        endpoint_id: EndpointId,
+    },
+    Closed {
+        endpoint_id: EndpointId,
+        error: Option<String>,
+    },
+}
+
 #[derive(Clone, Debug)]
 pub struct Trade {
-    game_state: Arc<Mutex<GameState>>,
+    game_engine: Arc<Mutex<GameEngine>>,
     event_sender: broadcast::Sender<AcceptTradeEvent>,
 }
 
@@ -36,11 +76,11 @@ impl Trade {
 
     pub fn new(
         event_sender: broadcast::Sender<AcceptTradeEvent>,
-        game_state: Arc<Mutex<GameState>>,
+        game_engine: Arc<Mutex<GameEngine>>,
     ) -> Self {
         Self {
             event_sender,
-            game_state,
+            game_engine,
         }
     }
 
@@ -98,24 +138,23 @@ impl Trade {
         tokio::io::copy(&mut acceptance_bytes.as_slice(), &mut send).await?;
         send.finish()?;
 
-        // Update the shared game state
+        // Update the shared game engine
         {
-            let mut gs = self.game_state.lock().await;
+            let mut engine = self.game_engine.lock().await;
+            let player = engine.get_player_mut();
+
             match trade_item.item_type {
                 TradeItemType::Money => {
                     if let Some(amount) = trade_item.amount {
-                        gs.player.money += amount;
+                        player.money += amount;
                     }
                 }
                 TradeItemType::Crop => {
                     if let Some(crop) = trade_item.crop {
-                        gs.player.inventory.push(crop);
+                        player.inventory.push(crop);
                     }
                 }
             }
-
-            // Save the updated state to disk
-            gs.save().unwrap();
         }
 
         self.event_sender
@@ -138,19 +177,19 @@ impl ProtocolHandler for Trade {
 pub struct TradeNode {
     router: Router,
     accept_events: broadcast::Sender<AcceptTradeEvent>,
-    game_state: Arc<Mutex<GameState>>,
+    game_engine: Arc<Mutex<GameEngine>>,
 }
 
 impl TradeNode {
-    pub async fn spawn(game_state: GameState) -> Result<Self> {
+    pub async fn spawn(game_engine: GameEngine) -> Result<Self> {
         let endpoint_builder = iroh::Endpoint::builder()
             .alpns(vec![Trade::ALPN.to_vec()])
             .bind()
             .await?;
 
-        let game_state_arc = Arc::new(Mutex::new(game_state));
+        let game_engine_arc = Arc::new(Mutex::new(game_engine));
         let (event_sender, _) = broadcast::channel(128);
-        let trade = Trade::new(event_sender.clone(), game_state_arc.clone());
+        let trade = Trade::new(event_sender.clone(), game_engine_arc.clone());
         let router = Router::builder(endpoint_builder)
             .accept(Trade::ALPN, trade)
             .spawn();
@@ -158,7 +197,7 @@ impl TradeNode {
         Ok(Self {
             router,
             accept_events: event_sender,
-            game_state: game_state_arc,
+            game_engine: game_engine_arc,
         })
     }
 
@@ -166,8 +205,8 @@ impl TradeNode {
         self.router.endpoint()
     }
 
-    pub fn get_game_state(&self) -> Arc<Mutex<GameState>> {
-        self.game_state.clone()
+    pub fn get_game_engine(&self) -> Arc<Mutex<GameEngine>> {
+        self.game_engine.clone()
     }
 
     async fn initiate_trade(
@@ -175,7 +214,7 @@ impl TradeNode {
         endpoint_id: EndpointId,
         event_sender: Sender<TradeEvent>,
         trade_item: TradeItem,
-        game_state: Arc<Mutex<GameState>>,
+        game_engine: Arc<Mutex<GameEngine>>,
     ) -> Result<()> {
         let connection = endpoint.connect(endpoint_id, Trade::ALPN).await?;
         event_sender.send(TradeEvent::Connected).await?;
@@ -199,26 +238,23 @@ impl TradeNode {
         let res: serde_json::Value = serde_json::from_slice(&buffer)?;
 
         if res["status"] == "trade_accepted" {
-            let mut gs = game_state.lock().await;
+            let mut engine = game_engine.lock().await;
+            let player = engine.get_player_mut();
 
             match trade_item.item_type {
                 TradeItemType::Money => {
                     if let Some(amount) = trade_item.amount {
-                        gs.player.money -= amount;
+                        player.money -= amount;
                     }
                 }
                 TradeItemType::Crop => {
                     if let Some(crop) = &trade_item.crop {
-                        if let Some(pos) = gs.player.inventory.iter().position(|c| c.id == crop.id)
-                        {
-                            gs.player.inventory.remove(pos);
+                        if let Some(pos) = player.inventory.iter().position(|c| c.id == crop.id) {
+                            player.inventory.remove(pos);
                         }
                     }
                 }
             }
-
-            // Save the updated state
-            gs.save()?;
 
             event_sender
                 .send(TradeEvent::TradeAccepted {
@@ -241,7 +277,7 @@ impl TradeNode {
     ) -> impl Stream<Item = TradeEvent> + Unpin + use<> {
         let (event_sender, event_receiver) = async_channel::bounded(16);
         let endpoint = self.router.endpoint().clone();
-        let game_state = self.game_state.clone();
+        let game_engine = self.game_engine.clone();
 
         task::spawn(async move {
             let res = Self::initiate_trade(
@@ -249,7 +285,7 @@ impl TradeNode {
                 endpoint_id,
                 event_sender.clone(),
                 trade_item,
-                game_state,
+                game_engine,
             )
             .await;
             let error = res.as_ref().err().map(|err| err.to_string());
