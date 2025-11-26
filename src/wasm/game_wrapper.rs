@@ -104,4 +104,37 @@ impl WasmGameEngine {
     pub fn get_current_season(&self) -> String {
         format!("{:?}", self.engine.get_current_season())
     }
+
+    #[wasm_bindgen(js_name = buySeed)]
+    pub fn buy_seed(&mut self, seed_name: &str) -> String {
+        let result = self.engine.execute(GameCommand::BuySeed {
+            seed_name: seed_name.to_string(),
+        });
+        serde_json::to_string(&result)
+            .unwrap_or_else(|_| r#"{"Error":"Serialization failed"}"#.to_string())
+    }
+
+    #[wasm_bindgen(js_name = getAvailableSeeds)]
+    pub fn get_available_seeds(&self) -> String {
+        use crate::core::crop::get_seasonal_crops;
+        let current_season = self.engine.get_current_season();
+        let available_crops = get_seasonal_crops(current_season);
+
+        // Convert to a simpler format with prices
+        let seeds_info: Vec<serde_json::Value> = available_crops
+            .iter()
+            .map(|crop| {
+                let seed_cost = (crop.sell_price as f32 * 0.5) as u32;
+                serde_json::json!({
+                    "name": crop.name,
+                    "cost": seed_cost,
+                    "growth_days": crop.growth_days,
+                    "sell_price": crop.sell_price,
+                    "seasons": crop.seasons,
+                })
+            })
+            .collect();
+
+        serde_json::to_string(&seeds_info).unwrap_or_else(|_| "[]".to_string())
+    }
 }

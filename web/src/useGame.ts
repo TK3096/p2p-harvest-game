@@ -11,6 +11,8 @@ interface WasmGameEngine {
   advanceDay(): string;
   getDay(): number;
   getCurrentSeason(): string;
+  buySeed(seedName: string): string;
+  getAvailableSeeds(): string;
 }
 
 interface WasmGameEngineConstructor {
@@ -162,6 +164,27 @@ export function useGame() {
     executeAction(() => gameEngine!.advanceDay(), "🌅 Day advanced!");
   }, [gameEngine, executeAction]);
 
+  const buySeed = useCallback(
+    (seedName: string) => {
+      executeAction(
+        () => gameEngine!.buySeed(seedName),
+        `🌱 Purchased ${seedName} seed!`,
+      );
+    },
+    [gameEngine, executeAction],
+  );
+
+  const getAvailableSeeds = useCallback(() => {
+    if (!gameEngine) return [];
+    try {
+      const seedsJson = gameEngine.getAvailableSeeds();
+      return JSON.parse(seedsJson);
+    } catch (e) {
+      console.error("Failed to get available seeds:", e);
+      return [];
+    }
+  }, [gameEngine]);
+
   const startNewGame = useCallback(
     async (name: string) => {
       try {
@@ -227,6 +250,8 @@ export function useGame() {
     waterCrops,
     harvestCrops,
     advanceDay,
+    buySeed,
+    getAvailableSeeds,
     resetGame,
     clearMessage,
     showNameInput,

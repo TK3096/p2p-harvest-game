@@ -38,21 +38,43 @@ export interface SeasonChangeEvent {
   crops_died: string[];
 }
 
+export interface SeedInfo {
+  name: string;
+  cost: number;
+  growth_days: number;
+  sell_price: number;
+  seasons: Season[];
+}
+
 export type GameEvent =
-  | { DayAdvanced: { new_day: number; season_change: SeasonChangeEvent | null } }
-  | { Slept: { old_day: number; new_day: number; season_change: SeasonChangeEvent | null } }
+  | {
+      DayAdvanced: { new_day: number; season_change: SeasonChangeEvent | null };
+    }
+  | {
+      Slept: {
+        old_day: number;
+        new_day: number;
+        season_change: SeasonChangeEvent | null;
+      };
+    }
   | { CropPlanted: { crop_name: string; remaining_energy: number } }
   | { CropsWatered: { remaining_energy: number } }
   | { CropsHarvested: { earnings: number; total_money: number } }
-  | { EnergyRestored: null };
+  | { EnergyRestored: null }
+  | {
+      SeedPurchased: {
+        seed_name: string;
+        cost: number;
+        remaining_money: number;
+      };
+    };
 
-export type GameResult =
-  | { Success: GameEvent }
-  | { Error: string };
+export type GameResult = { Success: GameEvent } | { Error: string };
 
 export type GameCommand =
   | { Sleep: null }
   | { PlantCrop: { crop_index: number } }
   | { WaterCrops: null }
   | { HarvestCrops: null }
-  | { AdvanceDay: null };
+  | { AdvanceDay: null }
+  | { BuySeed: { seed_name: string } };

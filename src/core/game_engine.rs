@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
+    crop::get_seasonal_crops,
     player::Player,
     season::Season,
     types::{GameCommand, GameEvent, GameInfo, GameResult, SeasonChangeEvent, TimeConfig},
@@ -38,6 +39,7 @@ impl GameEngine {
             GameCommand::WaterCrops => self.handle_water_crops(),
             GameCommand::HarvestCrops => self.handle_harvest_crops(),
             GameCommand::AdvanceDay => self.handle_advance_day(),
+            GameCommand::BuySeed { seed_name } => self.handle_buy_seed(seed_name),
         }
     }
 
@@ -138,6 +140,38 @@ impl GameEngine {
             }),
             Err(e) => GameResult::Error(e.to_string()),
         }
+    }
+
+    fn handle_buy_seed(&mut self, seed_name: String) -> GameResult {
+        let current_season = self.get_current_season();
+        let available_crops = get_seasonal_crops(current_season);
+
+        // Find the crop by name
+        let crop = match available_crops.iter().find(|c| c.name == seed_name) {
+            Some(c) => c.clone(),
+            None => return GameResult::Error(format!("Seed '{}' not available", seed_name)),
+        };
+
+        // Calculate seed cost (50% of sell price)
+        let seed_cost = (crop.sell_price as f32 * 0.5) as u32;
+
+        // Check if player has enough money
+        if self.player.money < seed_cost {
+            return GameResult::Error(format!(
+                "Not enough money! Need {} coins, have {}",
+                seed_cost, self.player.money
+            ));
+        }
+
+        // Purchase the seed
+        self.player.money -= seed_cost;
+        self.player.inventory.push(crop.clone());
+
+        GameResult::Success(GameEvent::SeedPurchased {
+            seed_name: crop.name,
+            cost: seed_cost,
+            remaining_money: self.player.money,
+        })
     }
 
     /// Advance to next day and handle season changes

@@ -70,6 +70,17 @@ impl GameRenderer {
             GameEvent::EnergyRestored => {
                 write!(stdout, "⚡ Energy restored!\r\n")?;
             }
+            GameEvent::SeedPurchased {
+                seed_name,
+                cost,
+                remaining_money,
+            } => {
+                write!(
+                    stdout,
+                    "🏪 Purchased {} seed for {} coins! Remaining money: {}\r\n",
+                    seed_name, cost, remaining_money
+                )?;
+            }
         }
 
         stdout.flush()?;

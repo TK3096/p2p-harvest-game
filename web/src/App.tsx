@@ -1,6 +1,7 @@
 import { useGame } from "./useGame";
 import "./App.css";
 import { useState } from "react";
+import type { SeedInfo } from "./types";
 
 function App() {
   const {
@@ -13,6 +14,8 @@ function App() {
     waterCrops,
     harvestCrops,
     advanceDay,
+    buySeed,
+    getAvailableSeeds,
     resetGame,
     clearMessage,
     showNameInput,
@@ -20,6 +23,9 @@ function App() {
     setPlayerName,
     handleNameSubmit,
   } = useGame();
+
+  const [showMarket, setShowMarket] = useState(false);
+  const [availableSeeds, setAvailableSeeds] = useState<SeedInfo[]>([]);
 
   if (loading) {
     return (
@@ -77,6 +83,17 @@ function App() {
   }
 
   const energyPercentage = (gameInfo.player_energy / gameInfo.max_energy) * 100;
+
+  const handleOpenMarket = () => {
+    const seeds = getAvailableSeeds();
+    setAvailableSeeds(seeds);
+    setShowMarket(true);
+  };
+
+  const handleBuySeed = (seedName: string) => {
+    buySeed(seedName);
+    setShowMarket(false);
+  };
 
   return (
     <div className="app">
@@ -249,8 +266,76 @@ function App() {
           <button className="action-button secondary" onClick={advanceDay}>
             ⏭️ Advance Day
           </button>
+
+          <button className="action-button market" onClick={handleOpenMarket}>
+            🏪 Market
+          </button>
         </div>
       </div>
+
+      {/* Market Modal */}
+      {showMarket && (
+        <div className="modal-overlay" onClick={() => setShowMarket(false)}>
+          <div
+            className="modal market-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>🏪 Seed Market</h2>
+            <p className="market-description">
+              Buy seeds for the current season: {gameInfo.current_season}
+            </p>
+            <p className="player-money">
+              Your Money: 💰 ${gameInfo.player_money}
+            </p>
+
+            <div className="seeds-grid">
+              {availableSeeds.length === 0 ? (
+                <p className="empty-message">No seeds available this season</p>
+              ) : (
+                availableSeeds.map((seed) => (
+                  <div key={seed.name} className="seed-card">
+                    <h3>{seed.name}</h3>
+                    <p className="seed-info">Growth: {seed.growth_days} days</p>
+                    <p className="seed-info">Sells for: ${seed.sell_price}</p>
+                    <p className="seed-seasons">
+                      {seed.seasons
+                        .map((s) => {
+                          const emoji =
+                            s === "Spring"
+                              ? "🌸"
+                              : s === "Summer"
+                                ? "☀️"
+                                : s === "Autumn"
+                                  ? "🍂"
+                                  : "❄️";
+                          return emoji;
+                        })
+                        .join(" ")}
+                    </p>
+                    <div className="seed-purchase">
+                      <span className="seed-cost">💰 ${seed.cost}</span>
+                      <button
+                        className="action-button small"
+                        onClick={() => handleBuySeed(seed.name)}
+                        disabled={gameInfo.player_money < seed.cost}
+                      >
+                        Buy
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <button
+              className="action-button secondary"
+              onClick={() => setShowMarket(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

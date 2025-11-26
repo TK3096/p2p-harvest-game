@@ -9,6 +9,7 @@ pub enum GameCommand {
     WaterCrops,
     HarvestCrops,
     AdvanceDay,
+    BuySeed { seed_name: String },
 }
 
 /// Result of executing a command
@@ -42,6 +43,11 @@ pub enum GameEvent {
         total_money: u32,
     },
     EnergyRestored,
+    SeedPurchased {
+        seed_name: String,
+        cost: u32,
+        remaining_money: u32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
