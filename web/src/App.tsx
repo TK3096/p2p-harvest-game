@@ -1,5 +1,6 @@
-import { useGame } from './useGame';
-import './App.css';
+import { useGame } from "./useGame";
+import "./App.css";
+import { useState } from "react";
 
 function App() {
   const {
@@ -14,6 +15,10 @@ function App() {
     advanceDay,
     resetGame,
     clearMessage,
+    showNameInput,
+    playerName,
+    setPlayerName,
+    handleNameSubmit,
   } = useGame();
 
   if (loading) {
@@ -21,6 +26,40 @@ function App() {
       <div className="app">
         <div className="loading">
           <h2>🌱 Loading Harvest Game...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  // Show name input modal
+  if (showNameInput) {
+    return (
+      <div className="app">
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>🌾 Welcome to Harvest Game!</h2>
+            <p>Enter your farmer name to begin:</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleNameSubmit(playerName);
+              }}
+            >
+              <input
+                type="text"
+                className="name-input"
+                placeholder="Enter your name..."
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                autoFocus
+                maxLength={20}
+              />
+              <button type="submit" className="action-button">
+                Start Farming! 🚜
+              </button>
+            </form>
+            {error && <p className="error-text">{error}</p>}
+          </div>
         </div>
       </div>
     );
@@ -43,12 +82,17 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>🌾 Harvest Game</h1>
-        <button className="reset-button" onClick={resetGame}>Reset Game</button>
+        <button className="reset-button" onClick={resetGame}>
+          Reset Game
+        </button>
       </header>
 
       {/* Message/Error Display */}
       {(message || error) && (
-        <div className={`notification ${error ? 'error' : 'success'}`} onClick={clearMessage}>
+        <div
+          className={`notification ${error ? "error" : "success"}`}
+          onClick={clearMessage}
+        >
           {error || message}
           <span className="close">×</span>
         </div>
@@ -60,7 +104,9 @@ function App() {
           <div className="stat-card">
             <h3>📅 Day {gameInfo.day}</h3>
             <p className="season">{gameInfo.current_season}</p>
-            <p className="year-info">Year {gameInfo.year}, Day {gameInfo.day_in_season}</p>
+            <p className="year-info">
+              Year {gameInfo.year}, Day {gameInfo.day_in_season}
+            </p>
           </div>
 
           <div className="stat-card">
@@ -75,11 +121,18 @@ function App() {
                 className="energy-bar"
                 style={{
                   width: `${energyPercentage}%`,
-                  backgroundColor: energyPercentage > 50 ? '#4caf50' : energyPercentage > 25 ? '#ff9800' : '#f44336'
+                  backgroundColor:
+                    energyPercentage > 50
+                      ? "#4caf50"
+                      : energyPercentage > 25
+                        ? "#ff9800"
+                        : "#f44336",
                 }}
               />
             </div>
-            <p className="energy-text">{gameInfo.player_energy} / {gameInfo.max_energy}</p>
+            <p className="energy-text">
+              {gameInfo.player_energy} / {gameInfo.max_energy}
+            </p>
           </div>
         </div>
 
@@ -93,16 +146,21 @@ function App() {
                 <p className="empty-message">No crops planted yet!</p>
               ) : (
                 gameInfo.fields.map((crop) => (
-                  <div key={crop.id} className={`crop-card ${crop.ready_harvest ? 'ready' : ''}`}>
+                  <div
+                    key={crop.id}
+                    className={`crop-card ${crop.ready_harvest ? "ready" : ""}`}
+                  >
                     <div className="crop-header">
                       <span className="crop-name">{crop.name}</span>
-                      {crop.ready_harvest && <span className="ready-badge">✓ Ready!</span>}
+                      {crop.ready_harvest && (
+                        <span className="ready-badge">✓ Ready!</span>
+                      )}
                     </div>
                     <div className="crop-progress">
                       <div
                         className="progress-bar"
                         style={{
-                          width: `${(crop.watered_days.length / crop.growth_days) * 100}%`
+                          width: `${(crop.watered_days.length / crop.growth_days) * 100}%`,
                         }}
                       />
                     </div>
@@ -121,7 +179,9 @@ function App() {
             <h2>🎒 Inventory ({gameInfo.inventory.length})</h2>
             <div className="crops-grid">
               {gameInfo.inventory.length === 0 ? (
-                <p className="empty-message">No seeds available. Buy some from the market!</p>
+                <p className="empty-message">
+                  No seeds available. Buy some from the market!
+                </p>
               ) : (
                 gameInfo.inventory.map((crop, index) => (
                   <div key={crop.id} className="crop-card inventory-item">
@@ -131,10 +191,19 @@ function App() {
                     <p className="crop-info">Growth: {crop.growth_days} days</p>
                     <p className="crop-value">Value: ${crop.sell_price}</p>
                     <p className="crop-seasons">
-                      {crop.seasons.map(s => {
-                        const emoji = s === 'Spring' ? '🌸' : s === 'Summer' ? '☀️' : s === 'Autumn' ? '🍂' : '❄️';
-                        return emoji;
-                      }).join(' ')}
+                      {crop.seasons
+                        .map((s) => {
+                          const emoji =
+                            s === "Spring"
+                              ? "🌸"
+                              : s === "Summer"
+                                ? "☀️"
+                                : s === "Autumn"
+                                  ? "🍂"
+                                  : "❄️";
+                          return emoji;
+                        })
+                        .join(" ")}
                     </p>
                     <button
                       className="action-button small"
@@ -165,22 +234,19 @@ function App() {
           <button
             className="action-button"
             onClick={harvestCrops}
-            disabled={gameInfo.fields.length === 0 || !gameInfo.fields.some(c => c.ready_harvest)}
+            disabled={
+              gameInfo.fields.length === 0 ||
+              !gameInfo.fields.some((c) => c.ready_harvest)
+            }
           >
             🌾 Harvest
           </button>
 
-          <button
-            className="action-button"
-            onClick={sleep}
-          >
+          <button className="action-button" onClick={sleep}>
             💤 Sleep
           </button>
 
-          <button
-            className="action-button secondary"
-            onClick={advanceDay}
-          >
+          <button className="action-button secondary" onClick={advanceDay}>
             ⏭️ Advance Day
           </button>
         </div>

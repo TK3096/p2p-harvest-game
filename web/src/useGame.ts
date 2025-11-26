@@ -31,6 +31,8 @@ export function useGame() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [showNameInput, setShowNameInput] = useState(false);
+  const [playerName, setPlayerName] = useState("");
 
   const updateGameInfo = useCallback((engine: WasmGameEngine) => {
     try {
@@ -66,19 +68,20 @@ export function useGame() {
           try {
             engine = wasmModule.WasmGameEngine.fromJson(savedState);
             setMessage("Game loaded from save!");
+            setGameEngine(engine);
+            updateGameInfo(engine);
+            setLoading(false);
           } catch (e) {
             console.error("Failed to load saved game:", e);
-            engine = new wasmModule.WasmGameEngine("Farmer");
-            setMessage("Started new game (save corrupted)");
+            // Save corrupted - ask for new name
+            setShowNameInput(true);
+            setLoading(false);
           }
         } else {
-          engine = new wasmModule.WasmGameEngine("Farmer");
-          setMessage("Welcome to Harvest Game!");
+          // No saved game - ask for player name
+          setShowNameInput(true);
+          setLoading(false);
         }
-
-        setGameEngine(engine);
-        updateGameInfo(engine);
-        setLoading(false);
       } catch (err) {
         console.error("Failed to initialize WASM:", err);
         setError("Failed to load game. Please refresh the page.");
@@ -159,6 +162,40 @@ export function useGame() {
     executeAction(() => gameEngine!.advanceDay(), "🌅 Day advanced!");
   }, [gameEngine, executeAction]);
 
+  const startNewGame = useCallback(
+    async (name: string) => {
+      try {
+        const wasmModule = (await import(
+          "./wasm/p2p_harvest_game.js"
+        )) as unknown as WasmModule;
+        await wasmModule.default();
+        const newEngine = new wasmModule.WasmGameEngine(name);
+        setGameEngine(newEngine);
+        updateGameInfo(newEngine);
+        setShowNameInput(false);
+        setPlayerName("");
+        setMessage(`Welcome, ${name}! Happy farming! 🌾`);
+        setError(null);
+      } catch (e) {
+        console.error("Failed to start new game:", e);
+        setError("Failed to start new game");
+      }
+    },
+    [updateGameInfo],
+  );
+
+  const handleNameSubmit = useCallback(
+    (name: string) => {
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        setError("Please enter a name!");
+        return;
+      }
+      startNewGame(trimmedName);
+    },
+    [startNewGame],
+  );
+
   const resetGame = useCallback(() => {
     if (!gameEngine) return;
 
@@ -167,22 +204,13 @@ export function useGame() {
     );
     if (!confirmed) return;
 
-    try {
-      import("./wasm/p2p_harvest_game.js").then(async (module) => {
-        const wasmModule = module as unknown as WasmModule;
-        await wasmModule.default(); // Initialize WASM
-        const newEngine = new wasmModule.WasmGameEngine("Farmer");
-        setGameEngine(newEngine);
-        updateGameInfo(newEngine);
-        localStorage.removeItem(STORAGE_KEY);
-        setMessage("Game reset! Starting fresh.");
-        setError(null);
-      });
-    } catch (e) {
-      console.error("Failed to reset game:", e);
-      setError("Failed to reset game");
-    }
-  }, [gameEngine, updateGameInfo]);
+    localStorage.removeItem(STORAGE_KEY);
+    setGameEngine(null);
+    setGameInfo(null);
+    setShowNameInput(true);
+    setPlayerName("");
+    setMessage("Game reset! Enter your name to start fresh.");
+  }, [gameEngine]);
 
   const clearMessage = useCallback(() => {
     setMessage(null);
@@ -201,5 +229,9 @@ export function useGame() {
     advanceDay,
     resetGame,
     clearMessage,
+    showNameInput,
+    playerName,
+    setPlayerName,
+    handleNameSubmit,
   };
 }
