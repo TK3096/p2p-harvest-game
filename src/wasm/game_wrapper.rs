@@ -131,6 +131,7 @@ impl WasmGameEngine {
                     "growth_days": crop.growth_days,
                     "sell_price": crop.sell_price,
                     "seasons": crop.seasons,
+                    "icon": crop.icon
                 })
             })
             .collect();

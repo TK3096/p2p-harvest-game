@@ -146,8 +146,8 @@ impl GameRenderer {
             for crop in &info.inventory {
                 write!(
                     stdout,
-                    "- {} (Growth Days: {}, Sell Price: {})\r\n",
-                    crop.name, crop.growth_days, crop.sell_price
+                    "- {} {} (Growth Days: {}, Sell Price: {})\r\n",
+                    crop.icon, crop.name, crop.growth_days, crop.sell_price
                 )?;
             }
         }
@@ -160,7 +160,7 @@ impl GameRenderer {
             for crop in &info.fields {
                 Self::draw_status_bar(
                     stdout,
-                    &crop.name,
+                    &format!("{} {}", crop.icon, crop.name),
                     if crop.ready_harvest {
                         "Ready to harvest".to_string()
                     } else {

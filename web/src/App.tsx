@@ -168,7 +168,9 @@ function App() {
                     className={`crop-card ${crop.ready_harvest ? "ready" : ""}`}
                   >
                     <div className="crop-header">
-                      <span className="crop-name">{crop.name}</span>
+                      <span className="crop-name">
+                        {crop.icon} {crop.name}
+                      </span>
                       {crop.ready_harvest && (
                         <span className="ready-badge">✓ Ready!</span>
                       )}
@@ -203,7 +205,9 @@ function App() {
                 gameInfo.inventory.map((crop, index) => (
                   <div key={crop.id} className="crop-card inventory-item">
                     <div className="crop-header">
-                      <span className="crop-name">{crop.name}</span>
+                      <span className="crop-name">
+                        {crop.icon} {crop.name}
+                      </span>
                     </div>
                     <p className="crop-info">Growth: {crop.growth_days} days</p>
                     <p className="crop-value">Value: ${crop.sell_price}</p>
@@ -294,7 +298,9 @@ function App() {
               ) : (
                 availableSeeds.map((seed) => (
                   <div key={seed.name} className="seed-card">
-                    <h3>{seed.name}</h3>
+                    <h3>
+                      {seed.icon} {seed.name}
+                    </h3>
                     <p className="seed-info">Growth: {seed.growth_days} days</p>
                     <p className="seed-info">Sells for: ${seed.sell_price}</p>
                     <p className="seed-seasons">

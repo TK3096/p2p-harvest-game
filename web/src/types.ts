@@ -16,6 +16,7 @@ export interface Crop {
   ready_harvest: boolean;
   energy_cost: number;
   seasons: Season[];
+  icon: string;
 }
 
 export interface GameInfo {
@@ -44,6 +45,7 @@ export interface SeedInfo {
   growth_days: number;
   sell_price: number;
   seasons: Season[];
+  icon: string;
 }
 
 export type GameEvent =
