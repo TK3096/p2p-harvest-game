@@ -2,7 +2,9 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use p2p_harvest_game::game::GameState;
+
+#[cfg(feature = "cli")]
+use p2p_harvest_game::cli::{CliApp, GamePersistence};
 
 #[derive(Parser)]
 struct Args {
@@ -20,15 +22,15 @@ enum Command {
 
 fn main() -> Result<ExitCode> {
     let args = Args::parse();
-    let mut game_state = GameState::load_or_create()?;
 
     match args.command {
         Command::Start => {
             println!("🌱 Welcome to the P2P Harvest Game! 🌱");
-            game_state.start().context("Failed to strat game")?;
+            let mut app = CliApp::load_or_create()?;
+            app.run().context("Failed to run game")?;
         }
         Command::Reset => {
-            game_state.reset()?;
+            GamePersistence::reset()?;
             println!("Game state has been reset.");
         }
     }

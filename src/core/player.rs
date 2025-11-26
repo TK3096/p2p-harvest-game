@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::crop::{Crop, initiate_starter_crops};
+use super::crop::{Crop, initiate_starter_crops};
 
 const STARTING_MONEY: u32 = 1000;
 
@@ -18,9 +18,7 @@ pub struct Player {
 
 impl Player {
     pub const MAX_ENERGY: u8 = 100;
-}
 
-impl Player {
     pub fn new(name: &str) -> Self {
         let starter_crops = initiate_starter_crops();
 

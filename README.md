@@ -9,8 +9,22 @@ A peer-to-peer multiplayer harvest game built with Rust and Iroh networking. Pla
 - 💾 **Persistent State**: Game progress is automatically saved
 - 🎮 **Interactive Terminal UI**: Built with crossterm for a smooth CLI experience
 - 🚀 **Async Architecture**: Powered by Tokio for efficient networking
+- 🌐 **WASM-Ready Core**: Separated core logic can be compiled to WebAssembly
+- 🔧 **Modular Design**: Clean separation between game logic, CLI, and networking
 
 ## Prerequisites
+
+### For Web UI
+
+1. **Rust** - Required for building WASM
+2. **wasm-pack** - Tool for building Rust to WebAssembly
+   ```bash
+   curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+   ```
+3. **Node.js** (v18+) - For the React frontend
+   - Download from: https://nodejs.org/
+
+### For CLI or Development
 
 ### Installing Rust
 
@@ -70,8 +84,34 @@ For more details, visit the official Rust installation guide: https://www.rust-l
 
 ## Usage
 
-### Start a New Game
+### Playing the Game
 
+#### Web UI (Recommended) 🌐
+
+The easiest way to play is through the web interface:
+
+1. Navigate to the web directory:
+   ```bash
+   cd web
+   ```
+
+2. Install dependencies (first time only):
+   ```bash
+   npm install
+   ```
+
+3. Build WASM and start the dev server:
+   ```bash
+   npm run wasm:dev
+   ```
+
+4. Open your browser to `http://localhost:3000`
+
+See [web/README.md](web/README.md) for detailed web UI instructions.
+
+#### Command Line Interface
+
+Start a new game:
 ```bash
 cargo run -- start
 ```
@@ -81,16 +121,12 @@ Or using the release build:
 ./target/release/p2p-harvest-game start
 ```
 
-### Reset Game State
-
-If you want to start fresh and clear your saved progress:
-
+Reset game state:
 ```bash
 cargo run -- reset
 ```
 
-### Available Commands
-
+**Available Commands:**
 - `start` - Start or resume the game
 - `reset` - Reset the game state and start fresh
 
@@ -98,20 +134,59 @@ cargo run -- reset
 
 ### Project Structure
 
+The project is now organized into three main modules:
+
 ```
 p2p-harvest-game/
 ├── src/
-│   ├── main.rs          # Entry point and CLI interface
-│   ├── game/            # Game logic and state management
-│   └── ...              # Additional modules
-├── Cargo.toml           # Project dependencies and metadata
-└── README.md            # This file
+│   ├── core/                # Pure game logic (WASM-compatible)
+│   │   ├── game_engine.rs   # Core game engine with no I/O
+│   │   ├── player.rs        # Player logic
+│   │   ├── crop.rs          # Crop definitions
+│   │   ├── season.rs        # Season mechanics
+│   │   └── types.rs         # Game commands and events
+│   ├── cli/                 # Terminal interface
+│   │   ├── app.rs           # CLI application
+│   │   ├── renderer.rs      # Terminal rendering
+│   │   ├── input.rs         # Input handling
+│   │   └── persistence.rs   # File save/load
+│   ├── network/             # P2P networking (optional)
+│   │   ├── manager.rs       # Trade manager
+│   │   ├── trade_protocol.rs
+│   │   └── trade_ui.rs
+│   ├── lib.rs               # Library exports
+│   └── main.rs              # CLI entry point
+├── Cargo.toml               # Project dependencies and metadata
+├── README.md                # This file
+└── MIGRATION_GUIDE.md       # Architecture migration guide
 ```
+
+**Key Design Principles:**
+- **Core Module**: Pure Rust logic with no I/O, ready for WASM compilation
+- **CLI Module**: Terminal-specific code (rendering, file I/O, input)
+- **Network Module**: Optional P2P functionality with feature flags
 
 ### Building for Development
 
+Standard build (includes CLI and networking):
 ```bash
 cargo build
+```
+
+Build CLI only (no networking):
+```bash
+cargo build --no-default-features --features cli
+```
+
+Build core library only (WASM-ready):
+```bash
+cargo build --lib --no-default-features
+```
+
+Build for Web (WASM):
+```bash
+cd web
+npm run wasm:build
 ```
 
 ### Running Tests
@@ -126,16 +201,49 @@ cargo test
 RUST_LOG=debug cargo run -- start
 ```
 
+## Architecture
+
+The game uses an **event-driven architecture**:
+
+```rust
+// Core game logic (WASM-compatible)
+use p2p_harvest_game::core::{GameEngine, types::*};
+
+let mut engine = GameEngine::new_game("PlayerName");
+let result = engine.execute(GameCommand::PlantCrop { crop_index: 0 });
+
+match result {
+    GameResult::Success(event) => {
+        // Handle event (render to UI, log, etc.)
+    }
+    GameResult::Error(msg) => {
+        // Handle error
+    }
+}
+```
+
+**Benefits:**
+- Core logic is testable without I/O
+- Same core can power CLI, web, GUI, or mobile apps
+- Easy to extend with new commands and events
+
 ## Dependencies
 
-- **tokio** - Async runtime
-- **iroh** - P2P networking
+### Core Dependencies (WASM-compatible)
 - **serde/serde_json** - Serialization
-- **crossterm** - Terminal UI
-- **clap** - Command-line argument parsing
 - **rand** - Random number generation
 - **uuid** - Unique identifiers
 - **chrono** - Date and time handling
+
+### CLI Dependencies (optional)
+- **tokio** - Async runtime
+- **crossterm** - Terminal UI
+- **clap** - Command-line argument parsing
+
+### Network Dependencies (optional)
+- **iroh** - P2P networking
+- **tokio-stream** - Async streams
+- **async-channel** - Async channels
 
 ## Game State
 
@@ -172,13 +280,47 @@ cargo build
 
 If P2P connectivity is not working, check your firewall settings and ensure the required ports are open.
 
-## Roadmap
+## Future Development
 
-- [ ] Enhanced crop varieties
-- [ ] Trading system between players
-- [ ] Seasons and weather effects
+### Completed ✅
+- [x] Refactored architecture with core/CLI separation
+- [x] Event-driven game engine
+- [x] Feature flags for optional dependencies
+- [x] Web UI using React and WASM
+- [x] Auto-save functionality (web)
+- [x] Responsive design for mobile/desktop
+
+### In Progress 🚧
+- [ ] Comprehensive unit tests for core logic
+- [ ] Shop system for buying seeds
+- [ ] More crop varieties
+
+### Long-term 🎯
+- [ ] P2P networking in web UI
+- [ ] Enhanced seasons and weather effects
 - [ ] Achievements and leaderboards
-- [ ] Cross-platform builds
+- [ ] Mobile apps using the same core
+- [ ] Multiplayer lobbies and matchmaking
+- [ ] Sound effects and animations
+
+## Using the Core Library
+
+The core library can be used independently:
+
+```rust
+// Add to Cargo.toml
+[dependencies]
+p2p-harvest-game = { version = "0.1", default-features = false }
+
+// Use in your code
+use p2p_harvest_game::core::{GameEngine, types::*};
+
+let mut engine = GameEngine::new_game("Player");
+let info = engine.get_info();
+println!("Day: {}, Money: {}", info.day, info.player_money);
+```
+
+For WASM usage, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
 
 ---
 

@@ -3,17 +3,42 @@ name = "p2p-harvest-game"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "p2p_harvest_game"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "p2p-harvest-game"
+path = "src/main.rs"
+
 [dependencies]
+# Core dependencies (WASM-compatible)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.48", default-features = false, features = ["sync", "rt-multi-thread", "macros", "io-util"] }
-tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
 rand = "0.9"
-uuid = { version = "1.18", features = ["v4", "serde"] }
+uuid = { version = "1.18", features = ["v4", "serde", "js"] }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-crossterm = { version = "0.29", default-features = false, features = ["windows", "events"] }
-clap = { version = "4.5", features = ["derive"] }
-iroh = { version = "0.95", default-features = false }
-n0-future = "0.3"
-async-channel = "2.3"
+
+# WASM dependencies (optional)
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+
+# CLI-only dependencies (optional for WASM)
+tokio = { version = "1.48", default-features = false, features = ["sync", "rt-multi-thread", "macros", "io-util"], optional = true }
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"], optional = true }
+crossterm = { version = "0.29", default-features = false, features = ["windows", "events"], optional = true }
+clap = { version = "4.5", features = ["derive"], optional = true }
+
+# Network dependencies (optional)
+iroh = { version = "0.95", default-features = false, optional = true }
+n0-future = { version = "0.3", optional = true }
+async-channel = { version = "2.3", optional = true }
+
+[features]
+default = ["cli", "network"]
+cli = ["tokio", "crossterm", "clap"]
+network = ["tokio", "tokio-stream", "iroh", "n0-future", "async-channel"]
+wasm = ["wasm-bindgen", "serde-wasm-bindgen", "getrandom"]

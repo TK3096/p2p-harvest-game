@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::seasson::Season;
+use super::season::Season;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crop {
@@ -14,6 +14,7 @@ pub struct Crop {
     pub energy_cost: u8,
     #[serde(default = "default_seasons")]
     pub seasons: Vec<Season>,
+    pub icon: String,
 }
 
 fn default_seasons() -> Vec<Season> {
@@ -21,7 +22,13 @@ fn default_seasons() -> Vec<Season> {
 }
 
 impl Crop {
-    pub fn new(name: &str, growth_days: u8, sell_price: u32, seasons: Vec<Season>) -> Self {
+    pub fn new(
+        name: &str,
+        growth_days: u8,
+        sell_price: u32,
+        seasons: Vec<Season>,
+        icon: &str,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             name: name.to_string(),
@@ -31,6 +38,7 @@ impl Crop {
             ready_harvest: false,
             energy_cost: 15,
             seasons,
+            icon: icon.to_string(),
         }
     }
 
@@ -50,9 +58,10 @@ pub fn initiate_starter_crops() -> Vec<Crop> {
             3,
             50,
             vec![Season::Spring, Season::Summer, Season::Autumn],
+            "🥕",
         ),
-        Crop::new("Tomato", 5, 80, vec![Season::Summer]),
-        Crop::new("Potato", 4, 60, vec![Season::Spring, Season::Autumn]),
+        Crop::new("Tomato", 5, 80, vec![Season::Summer], "🍅"),
+        Crop::new("Potato", 4, 60, vec![Season::Spring, Season::Autumn], "🥔"),
         Crop::new(
             "Wheat",
             7,
@@ -63,6 +72,7 @@ pub fn initiate_starter_crops() -> Vec<Crop> {
                 Season::Autumn,
                 Season::Winter,
             ],
+            "🌾",
         ),
     ]
 }
@@ -75,19 +85,20 @@ pub fn get_seasonal_crops(season: Season) -> Vec<Crop> {
                 3,
                 50,
                 vec![Season::Spring, Season::Summer, Season::Autumn],
+                "🥕",
             ),
-            Crop::new("Potato", 4, 60, vec![Season::Spring, Season::Autumn]),
-            Crop::new("Parsnip", 4, 35, vec![Season::Spring]),
+            Crop::new("Potato", 4, 60, vec![Season::Spring, Season::Autumn], "🍅"),
+            Crop::new("Parsnip", 4, 35, vec![Season::Spring], "🥔"),
         ],
         Season::Summer => vec![
-            Crop::new("Tomato", 5, 80, vec![Season::Summer]),
-            Crop::new("Corn", 14, 150, vec![Season::Summer, Season::Autumn]),
-            Crop::new("Melon", 12, 250, vec![Season::Summer]),
+            Crop::new("Tomato", 5, 80, vec![Season::Summer], "🍅"),
+            Crop::new("Corn", 14, 150, vec![Season::Summer, Season::Autumn], "🌽"),
+            Crop::new("Melon", 12, 250, vec![Season::Summer], "🍈"),
         ],
         Season::Autumn => vec![
-            Crop::new("Pumpkin", 13, 320, vec![Season::Autumn]),
-            Crop::new("Corn", 14, 150, vec![Season::Summer, Season::Autumn]),
-            Crop::new("Yam", 10, 160, vec![Season::Autumn]),
+            Crop::new("Pumpkin", 13, 320, vec![Season::Autumn], "🎃"),
+            Crop::new("Corn", 14, 150, vec![Season::Summer, Season::Autumn], "🌽"),
+            Crop::new("Yam", 10, 160, vec![Season::Autumn], "🍠"),
         ],
         Season::Winter => vec![
             Crop::new(
@@ -100,8 +111,9 @@ pub fn get_seasonal_crops(season: Season) -> Vec<Crop> {
                     Season::Autumn,
                     Season::Winter,
                 ],
+                "🌾",
             ),
-            Crop::new("Winter Seeds", 7, 80, vec![Season::Winter]),
+            Crop::new("Winter Seeds", 7, 80, vec![Season::Winter], "❄️"),
         ],
     }
 }
